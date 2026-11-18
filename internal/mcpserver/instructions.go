@@ -12,7 +12,7 @@ If a kb tool confuses you, fails unexpectedly or is missing something you need, 
 // conventions is the authoring guide, repeated in kb_overview because some
 // clients never show a model the server instructions.
 const conventions = `Writing pages:
-- Link pages with standard markdown: [label](kb:Page_Title) or [label](kb:Page_Title#Section). Use underscores for spaces, or wrap the destination in angle brackets: [label](<kb:Page Title>). Titles are case-insensitive except for display; the first letter is capitalized.
+- Link pages with standard markdown: [label](kb:Page_Title) or [label](kb:Page_Title#Section). Use underscores for spaces, or wrap the destination in angle brackets: [label](<kb:Page Title>). Parentheses work as written: [Mercury](kb:Mercury_(planet)). Titles are case-insensitive except for display; the first letter is capitalized.
 - Embed files with ![alt](kb-file:Name.png); link a non-image as [label](kb-file:Name.pdf). Upload with upload_file (base64).
 - Optional YAML frontmatter at the top holds metadata:
   ---
@@ -27,6 +27,6 @@ const conventions = `Writing pages:
 - Before linking many titles, resolve_titles tells you in one call which exist, which are redirects or aliases, and suggests near matches.
 
 Editing safely:
-- Every read returns rev. write_page needs base_rev (the rev you read); if someone else edited since, you get a conflict: re-read and reapply.
+- Every read and write returns rev: a revision id, unique across the whole kb (not a per-page counter, so a page's revs can jump from 1 to 5). write_page needs base_rev, the rev you last read or wrote; if someone else edited since, you get a conflict: re-read and reapply.
 - Prefer edit_page for changes: str_replace edits (old_text must match exactly once), replace one section, or append/prepend. Use bulk_write to create many pages in one call.
 - Give a short comment on each edit; it shows in history and recent_changes.`

@@ -891,3 +891,18 @@ func (s *Store) History(ctx context.Context, title string, before int64, limit i
 	}
 	return out, rows.Err()
 }
+
+// LinkReport reports a live page's links to missing pages and its embeds of
+// files not uploaded, as they stand now: after a batch of writes, links to
+// pages created later in the batch are no longer red.
+func (s *Store) LinkReport(ctx context.Context, title string) (red, missingFiles []string, err error) {
+	rp, err := s.GetPage(ctx, title, GetOptions{})
+	if err != nil {
+		return nil, nil, err
+	}
+	var r PutResult
+	if err := s.linkReport(ctx, s.r, rp.ID, &r); err != nil {
+		return nil, nil, err
+	}
+	return r.RedLinks, r.NoFiles, nil
+}

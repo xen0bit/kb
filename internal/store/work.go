@@ -36,7 +36,7 @@ type Task struct {
 }
 
 const taskCols = `t.id, COALESCE(t.parent_id, 0), t.title, t.body, t.status, t.priority, t.assignee, COALESCE(t.lease_until, 0),
-	COALESCE(t.page_key, ''), t.created_at, t.created_by, t.updated_at,
+	COALESCE((SELECT title FROM pages WHERE key = t.page_key), t.page_key, ''), t.created_at, t.created_by, t.updated_at,
 	(SELECT count(*) FROM tasks c WHERE c.parent_id = t.id),
 	(SELECT count(*) FROM tasks c WHERE c.parent_id = t.id AND c.status IN ('todo','doing','blocked'))`
 
@@ -195,13 +195,10 @@ func (s *Store) UpdateTask(ctx context.Context, u TaskUpdate) (*Task, error) {
 		}
 		var page any
 		if u.Page != nil {
-			t.Page = ""
-			if *u.Page != "" {
-				t.Page = wikitext.Key(*u.Page)
-			}
+			t.Page = *u.Page
 		}
 		if t.Page != "" {
-			page = t.Page
+			page = wikitext.Key(t.Page)
 		}
 		var lease any
 		if t.LeaseUntil > 0 {
@@ -418,7 +415,7 @@ func (s *Store) WriteNote(ctx context.Context, n NoteWrite) (*Note, error) {
 				topic = strings.TrimSpace(n.Topic)
 			}
 			if page == nil && cur.Page != "" {
-				page = cur.Page
+				page = wikitext.Key(cur.Page)
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE notes SET topic = ?, body = ?, page_key = ?, updated_at = ? WHERE id = ?`, topic, body, page, now, id); err != nil {
 				return err
@@ -446,7 +443,7 @@ func (s *Store) WriteNote(ctx context.Context, n NoteWrite) (*Note, error) {
 
 func (s *Store) getNote(ctx context.Context, q querier, id int64) (*Note, error) {
 	var n Note
-	err := q.QueryRowContext(ctx, `SELECT id, topic, body, author, COALESCE(page_key, ''), created_at, updated_at FROM notes WHERE id = ?`, id).Scan(
+	err := q.QueryRowContext(ctx, `SELECT id, topic, body, author, COALESCE((SELECT title FROM pages p WHERE p.key = notes.page_key), page_key, ''), created_at, updated_at FROM notes WHERE id = ?`, id).Scan(
 		&n.ID, &n.Topic, &n.Body, &n.Author, &n.Page, &n.CreatedAt, &n.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: no note %d", ErrNotFound, id)
@@ -500,7 +497,7 @@ func (s *Store) ListNotes(ctx context.Context, f NoteFilter) ([]Note, int, error
 	if err := s.r.QueryRowContext(ctx, `SELECT count(*) FROM `+from+w, args...).Scan(&total); err != nil {
 		return nil, 0, ftsErr(err)
 	}
-	rows, err := s.r.QueryContext(ctx, `SELECT n.id, n.topic, n.body, n.author, COALESCE(n.page_key, ''), n.created_at, n.updated_at FROM `+
+	rows, err := s.r.QueryContext(ctx, `SELECT n.id, n.topic, n.body, n.author, COALESCE((SELECT title FROM pages p WHERE p.key = n.page_key), n.page_key, ''), n.created_at, n.updated_at FROM `+
 		from+w+` ORDER BY `+order+` LIMIT ? OFFSET ?`, append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, ftsErr(err)

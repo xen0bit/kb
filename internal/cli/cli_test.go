@@ -48,6 +48,8 @@ func TestCommands(t *testing.T) {
 		{"db", "backup", filepath.Join(dir, "bak.db"), "-db", db},
 		{"feedback", "ls", "-db", db},
 		{"feedback", "ls", "-all", "-json", "-db", db},
+		{"skill", "install", "-dir", filepath.Join(dir, "skills", "kb")},
+		{"skill", "install", "-dir", filepath.Join(dir, "skills", "kb")},
 		{"version"},
 	}
 	for _, args := range ok {

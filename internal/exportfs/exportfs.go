@@ -20,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -132,32 +131,27 @@ func Export(ctx context.Context, st *store.Store, dir string, opt Options) (*Man
 	return m, os.WriteFile(filepath.Join(dir, "manifest.json"), append(b, '\n'), 0o644)
 }
 
-var kbDest = regexp.MustCompile(`\]\(\s*(<?)((?i:kb-file|kb)):([^)>\s#]*|[^)>#]*)(#[^)>\s]*)?(>?)`)
-
 // portable rewrites kb: and kb-file: destinations into relative paths.
 func portable(body string) string {
-	return kbDest.ReplaceAllStringFunc(body, func(m string) string {
-		sub := kbDest.FindStringSubmatch(m)
-		kind, target, frag := strings.ToLower(sub[2]), sub[3], sub[4]
-		if t, err := url.PathUnescape(target); err == nil {
-			target = t
-		}
-		if kind == "kb-file" {
-			n, err := wikitext.NormalizeFileName(target)
+	out, _ := wikitext.MapDestinations(body, func(d wikitext.Dest) (string, bool) {
+		if d.Kind == "file" {
+			n, err := wikitext.NormalizeFileName(d.Target)
 			if err != nil {
-				return m
+				return "", false
 			}
-			return "](../files/" + fileName(n)
+			return "../files/" + fileName(n), true
 		}
-		n, err := wikitext.NormalizeTitle(target)
+		n, err := wikitext.NormalizeTitle(d.Target)
 		if err != nil {
-			return m
+			return "", false
 		}
-		if frag != "" {
-			frag = "#" + wikitext.Anchor(frag[1:])
+		frag := ""
+		if d.Fragment != "" {
+			frag = "#" + wikitext.Anchor(d.Fragment)
 		}
-		return "](" + fileName(n) + ".md" + frag
+		return fileName(n) + ".md" + frag, true
 	})
+	return out
 }
 
 // ImportResult counts what Import did.

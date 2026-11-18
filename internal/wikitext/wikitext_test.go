@@ -196,6 +196,20 @@ func TestRewriteLinks(t *testing.T) {
 	}
 }
 
+func TestRewriteBalancedParens(t *testing.T) {
+	doc := "See [M](kb:Mercury_(planet)), [O](kb:Mercury_(planet)#Orbit \"t\"), [E](kb:Earth) and `[c](kb:mercury_(planet))`.\n"
+	out, n := RewriteLinks(doc, Key("Mercury (planet)"), "Mercury")
+	want := "See [M](kb:Mercury), [O](kb:Mercury#Orbit \"t\"), [E](kb:Earth) and `[c](kb:Mercury)`.\n"
+	if n != 3 || out != want {
+		t.Errorf("rewrote %d:\n%s\nwant\n%s", n, out, want)
+	}
+	// Unrelated parentheses after a link are not swallowed.
+	out, n = RewriteLinks("([x](kb:A)) and (y)", Key("A"), "B (c)")
+	if n != 1 || out != "([x](kb:B_%28c%29)) and (y)" {
+		t.Errorf("got %d %q", n, out)
+	}
+}
+
 func TestUnifiedDiff(t *testing.T) {
 	a := "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n"
 	b := "1\n2\nthree\n4\n5\n6\n7\n8\n9\n10\neleven\n"

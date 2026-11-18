@@ -273,6 +273,11 @@ func TestMoveRewritesLinksAndRedirects(t *testing.T) {
 	if _, err := s.MovePage(ctx, MoveRequest{From: "Mercury (planet)", To: "Mercury"}); err != nil {
 		t.Errorf("move back over redirect: %v", err)
 	}
+	put(t, s, "Mars (planet)", "x")
+	put(t, s, "Mars (mythology)", "y")
+	if res, _ := s.Resolve(ctx, []string{"mars"}, 3); res[0].Status != "missing" || len(res[0].Suggest) != 2 || res[0].Suggest[0] != "Mars (mythology)" {
+		t.Errorf("disambiguation suggestions %+v", res)
+	}
 	if res, _ := s.Resolve(ctx, []string{"Mercury", "Mercury (planet)", "Mercuri", "Pluto", "a#b"}, 3); res[0].Status != "exists" ||
 		res[1].Status != "missing" || res[2].Status != "missing" || len(res[2].Suggest) == 0 || res[2].Suggest[0] != "Mercury" || res[4].Status != "invalid" {
 		t.Errorf("resolve %+v", res)

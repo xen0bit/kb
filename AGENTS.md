@@ -24,6 +24,7 @@ Keep every result bounded, paginated and explicit about how to continue.
 | `web/src` | Bun project for the viewer's CSS and JS (`bun test`, `bun run build` → `web/dist`) |
 | `web/` (Go) | package `webui`: embeds `web/dist` under `-tags embed_web` |
 | `internal/exportfs` | export/import a folder of markdown and files |
+| `internal/skill` | `SKILL.md`, the agent skill, embedded and installed by `kb skill install` |
 
 ## Rules every change follows
 
@@ -45,8 +46,9 @@ Keep every result bounded, paginated and explicit about how to continue.
   rewrites `*_at` timestamps as RFC 3339. A tool that can grow must take
   `limit`/`offset` or `max_bytes` and report where to continue.
 - **Tool descriptions are the documentation agents read.** When behaviour
-  changes, update the description, `instructions.go` and the README table
-  together.
+  changes, update the description, `instructions.go`, `internal/skill/SKILL.md`
+  and the README table together. Tools taking nested arrays carry a one-line
+  JSON example in their description: agents guess shapes otherwise.
 - **The viewer never trusts page text.** goldmark runs without
   `WithUnsafe`. Files are served under a sandboxing CSP. Templates use
   `html/template` only.

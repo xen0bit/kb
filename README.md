@@ -44,6 +44,13 @@ claude mcp add kb -- kb mcp
 kb serve                       # http://127.0.0.1:8080/
 ```
 
+Install the agent skill so the agent knows the workflow and the pitfalls
+before its first call:
+
+```bash
+kb skill install               # ~/.claude/skills/kb/SKILL.md; kb skill print to read it
+```
+
 The database lives at `$KB_DB`, else `$XDG_DATA_HOME/kb/kb.db` (usually
 `~/.local/share/kb/kb.db`). Every command takes `-db PATH`.
 

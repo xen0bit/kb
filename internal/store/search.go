@@ -232,8 +232,28 @@ func (s *Store) Search(ctx context.Context, query string, f PageFilter, sortBy s
 // missing page.
 func (s *Store) Suggest(ctx context.Context, title string, n int) ([]string, error) {
 	t := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(title, "_", " ")))
-	if utf8.RuneCountInString(t) < 3 || n <= 0 {
+	if n <= 0 || t == "" {
 		return nil, nil
+	}
+	// Disambiguated titles first: "Mercury" → "Mercury (planet)",
+	// "Mercury (element)". Edit distance would reject them as too far.
+	var out []string
+	seenTitle := map[string]bool{}
+	rows, err := s.r.QueryContext(ctx, `SELECT title FROM pages WHERE deleted_at IS NULL AND key LIKE ? ESCAPE '\'
+		ORDER BY key LIMIT ?`, escapeLike(t)+" (%", n)
+	if err != nil {
+		return nil, err
+	}
+	dis, err := scanStrings(rows)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range dis {
+		seenTitle[d] = true
+		out = append(out, d)
+	}
+	if utf8.RuneCountInString(t) < 3 || len(out) >= n {
+		return out, nil
 	}
 	runes := []rune(t)
 	seen := map[string]bool{}
@@ -248,7 +268,7 @@ func (s *Store) Suggest(ctx context.Context, title string, n int) ([]string, err
 			break
 		}
 	}
-	rows, err := s.r.QueryContext(ctx, `SELECT p.title, titles_fts.title FROM titles_fts JOIN pages p ON p.id = titles_fts.rowid
+	rows, err = s.r.QueryContext(ctx, `SELECT p.title, titles_fts.title FROM titles_fts JOIN pages p ON p.id = titles_fts.rowid
 		WHERE titles_fts MATCH ? AND p.deleted_at IS NULL ORDER BY bm25(titles_fts) LIMIT 50`, strings.Join(grams, " OR "))
 	if err != nil {
 		return nil, ftsErr(err)
@@ -274,10 +294,12 @@ func (s *Store) Suggest(ctx context.Context, title string, n int) ([]string, err
 		return nil, err
 	}
 	sort.SliceStable(cs, func(i, j int) bool { return cs[i].d < cs[j].d })
-	var out []string
 	for _, c := range cs {
 		if len(out) == n {
 			break
+		}
+		if seenTitle[c.title] {
+			continue
 		}
 		// Reject what is barely related: more edits than half the title.
 		if c.d > max(3, len(runes)/2) {

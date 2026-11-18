@@ -54,6 +54,10 @@ Data:
   kb db migrate|check|vacuum|stats|version|backup DEST
   kb feedback ls [-all] [-tool T] | resolve ID [-m NOTE] [-wontfix]
 
+Agent skill:
+  kb skill install [-dir DIR] [-force]   write SKILL.md for Claude Code (default ~/.claude/skills/kb)
+  kb skill print                    print SKILL.md
+
 Every command takes -db PATH (default $KB_DB, else $XDG_DATA_HOME/kb/kb.db).
 Listing commands take -json. kb version prints the build.
 `
@@ -117,6 +121,8 @@ func Run(args []string) int {
 		err = runDB(ctx, rest)
 	case "feedback":
 		err = runFeedback(ctx, rest)
+	case "skill":
+		err = runSkill(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "kb: unknown command %q\n\n%s", cmd, usage)
 		return 2
