@@ -1,0 +1,13 @@
+{{define "content"}}{{with .Data}}
+<h1>Tasks</h1>
+<p class="filters">{{if .All}}<a href="/tasks">open only</a>{{else}}<a href="/tasks?status=all">include finished</a>{{end}}</p>
+<table class="grid">
+<thead><tr><th>#</th><th>Task</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Subtasks</th><th>Updated</th></tr></thead>
+<tbody>{{range .Tasks}}<tr>
+<td>{{.ID}}{{if .ParentID}} <span class="meta">↳{{.ParentID}}</span>{{end}}</td>
+<td>{{.Title}}{{with .Page}} <span class="meta">(<a href="{{wiki .}}">{{.}}</a>)</span>{{end}}{{with .Body}}<details><summary class="meta">details</summary><pre class="body">{{.}}</pre></details>{{end}}</td>
+<td><span class="status t-{{.Status}}">{{.Status}}</span></td><td>{{.Priority}}</td><td>{{.Assignee}}</td>
+<td>{{if .Children}}{{.OpenKids}} open / {{.Children}}{{end}}</td><td>{{template "when" .UpdatedAt}}</td>
+</tr>{{else}}<tr><td colspan="7" class="meta">No tasks.</td></tr>{{end}}</tbody></table>
+{{template "pager" .Pager}}
+{{end}}{{end}}

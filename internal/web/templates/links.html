@@ -1,0 +1,6 @@
+{{define "content"}}{{with .Data}}
+<h1>{{.Label}} <a href="{{wiki .Title}}">{{.Title}}</a></h1>
+<p class="filters"><a href="?dir=in">what links here</a> · <a href="?dir=out">links from this page</a> · <a href="?dir=red">missing pages it links to</a></p>
+<ul class="plain">{{range .Links}}<li><a {{if not .Exists}}class="new" {{end}}href="{{wiki .Title}}">{{.Title}}</a></li>{{else}}<li class="meta">None.</li>{{end}}</ul>
+{{template "pager" .Pager}}
+{{end}}{{end}}

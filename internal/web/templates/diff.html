@@ -1,0 +1,6 @@
+{{define "content"}}{{with .Data}}
+<h1>Diff: <a href="{{wiki .B.Title}}">{{.B.Title}}</a></h1>
+<p class="meta"><a href="{{wiki .A.Title}}?rev={{.A.ID}}">rev {{.A.ID}}</a> ({{template "when" .A.CreatedAt}}, {{.A.Author}}) → <a href="{{wiki .B.Title}}?rev={{.B.ID}}">rev {{.B.ID}}</a> ({{template "when" .B.CreatedAt}}, {{.B.Author}}){{with .B.Comment}}: <em>{{.}}</em>{{end}}</p>
+{{if .Lines}}<pre class="diff">{{range .Lines}}<span class="{{.Class}}">{{.Text}}</span>
+{{end}}</pre>{{else}}<p class="notice">No change to the text.</p>{{end}}
+{{end}}{{end}}

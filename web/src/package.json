@@ -1,0 +1,10 @@
+{
+  "name": "kb-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build ./js/app.js ./css/app.css --outdir ../dist --target browser --minify --entry-naming [name].[ext] --asset-naming [name].[ext]",
+    "test": "bun test"
+  }
+}

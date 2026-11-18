@@ -1,0 +1,9 @@
+{{define "content"}}{{with .Data}}
+<h1>Files</h1>
+<p class="filters"><a href="/files">all</a> · <a href="/files?type=image/">images</a> · <a href="/special/unused_files">unused</a> · <a href="/special/missing_files">missing</a></p>
+<ul class="gallery">{{range .Files}}<li>
+<a href="{{fileurl .Name}}">{{if isimage .MIME}}<img src="{{fileurl .Name}}" alt="{{.Description}}" loading="lazy">{{else}}<span class="filetype">{{.MIME}}</span>{{end}}</a>
+<div><a href="{{fileurl .Name}}">{{.Name}}</a><br><span class="meta">{{bytes .Size}} · used by {{.UsedByN}} · {{template "when" .UpdatedAt}}</span>{{with .Description}}<br><span class="desc">{{.}}</span>{{end}}</div>
+</li>{{else}}<li class="meta">No files.</li>{{end}}</ul>
+{{template "pager" .Pager}}
+{{end}}{{end}}

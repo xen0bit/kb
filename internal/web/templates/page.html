@@ -1,0 +1,21 @@
+{{define "content"}}{{with .Data}}
+<article class="page">
+<div class="page-tools">
+  <a href="{{history .Page.Title}}">History</a>
+  <a href="/links/{{.Page.Title}}?dir=in">What links here ({{.Backlinks}})</a>
+  <a href="/links/{{.Page.Title}}?dir=out">Links ({{.LinksOut}})</a>
+</div>
+<h1>{{.Page.Title}}</h1>
+{{if .Page.RedirectedFrom}}<p class="notice">Redirected from <a href="{{wiki .Page.RedirectedFrom}}?redirect=no">{{.Page.RedirectedFrom}}</a></p>{{end}}
+{{if .Page.ViaAlias}}<p class="notice">“{{.Page.ViaAlias}}” is another name for this page.</p>{{end}}
+{{if .Old}}<p class="notice warn">This is an old revision ({{.Rev.ID}}, {{template "when" .Rev.CreatedAt}}{{if .Rev.Author}} by {{.Rev.Author}}{{end}}). <a href="{{wiki .Page.Title}}">Current version</a> · <a href="/diff?from={{.Rev.ID}}&amp;to={{.Page.Rev}}">diff to current</a></p>{{end}}
+{{if .Page.RedirectTo}}<p class="notice">This page redirects to <a href="{{wiki .Page.RedirectTo}}">{{.Page.RedirectTo}}</a>.</p>{{end}}
+{{with .Rendered.Meta.Props}}<aside class="infobox"><table>{{range $k := propkeys .}}<tr><th>{{$k}}</th><td>{{prop (index $.Data.Rendered.Meta.Props $k)}}</td></tr>{{end}}</table></aside>{{end}}
+{{if gt (len .Rendered.TOC) 2}}<nav class="toc"><details open><summary>Contents</summary><ol>{{range .Rendered.TOC}}<li class="l{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>{{end}}</ol></details></nav>{{end}}
+<div class="content">{{.Rendered.HTML}}</div>
+<footer class="page-foot">
+{{with .Page.Categories}}<p class="cats">Categories: {{range $i, $c := .}}{{if $i}} · {{end}}<a href="/category/{{$c}}">{{$c}}</a>{{end}}</p>{{end}}
+<p class="meta">{{if .Page.Status}}<span class="status s-{{.Page.Status}}">{{.Page.Status}}</span> · {{end}}rev {{.Page.Rev}} · {{.Page.Words}} words · edited {{template "when" .Page.UpdatedAt}}{{if .Page.UpdatedBy}} by {{.Page.UpdatedBy}}{{end}} · created {{template "when" .Page.CreatedAt}}{{if .Page.CreatedBy}} by {{.Page.CreatedBy}}{{end}}</p>
+</footer>
+</article>
+{{end}}{{end}}

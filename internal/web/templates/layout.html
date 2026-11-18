@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}{{if ne .Title .Site}} · {{.Site}}{{end}}</title>
+<link rel="stylesheet" href="/static/app.css">
+<script type="module" src="/static/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="/">{{.Site}}</a>
+  <form class="search" action="/search" role="search">
+    <input type="search" name="q" value="{{.Query}}" placeholder="Search the kb  ( / )" autocomplete="off" aria-label="Search" data-suggest>
+    <ul class="suggest" hidden></ul>
+  </form>
+  <nav>
+    <a href="/recent">Recent</a>
+    <a href="/pages">Pages</a>
+    <a href="/categories">Categories</a>
+    <a href="/special">Special</a>
+    <a href="/files">Files</a>
+    <a href="/tasks">Tasks</a>
+    <a href="/notes">Notes</a>
+    <a href="/random">Random</a>
+    <button class="theme" type="button" data-theme-toggle title="Toggle dark mode">◐</button>
+  </nav>
+</header>
+<main>
+{{template "content" .}}
+</main>
+<footer>kb · read-only viewer · edits happen through MCP or the kb CLI</footer>
+</body>
+</html>
+{{define "pager"}}{{if or .Prev .Next}}<nav class="pager">{{if .Prev}}<a href="{{.Prev}}">← previous</a>{{end}} <span>{{add .Offset 1}}–{{if lt (add .Offset .Limit) .Total}}{{add .Offset .Limit}}{{else}}{{.Total}}{{end}} of {{.Total}}</span> {{if .Next}}<a href="{{.Next}}">next →</a>{{end}}</nav>{{end}}{{end}}
+{{define "when"}}<time datetime="{{iso .}}" title="{{iso .}}">{{ago .}}</time>{{end}}

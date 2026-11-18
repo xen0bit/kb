@@ -1,0 +1,11 @@
+/* Minimal styles for builds without the Bun-built assets (make web.build). */
+body{font:16px/1.55 system-ui,sans-serif;max-width:72rem;margin:0 auto;padding:0 1rem;color:#202122}
+header.top{display:flex;gap:1rem;align-items:center;flex-wrap:wrap;border-bottom:1px solid #ccc;padding:.5rem 0}
+header.top nav a{margin-right:.6rem}.logo{font-weight:700;font-size:1.3rem;text-decoration:none}
+a{color:#36c}a.new,.new{color:#d33}.meta{color:#666;font-size:.9em}.suggest,.theme{display:none}
+.infobox{float:right;border:1px solid #ccc;background:#f8f9fa;margin:0 0 1rem 1rem;padding:.5rem;max-width:22rem}
+table.grid{border-collapse:collapse;width:100%}table.grid td,table.grid th{border-bottom:1px solid #eee;padding:.3rem;text-align:left;vertical-align:top}
+pre{background:#f6f6f6;padding:.6rem;overflow-x:auto}.diff .add{background:#dfd;display:block}.diff .del{background:#fdd;display:block}
+.notice{background:#f8f9fa;border-left:3px solid #36c;padding:.4rem .8rem}img{max-width:100%}
+ul.gallery{list-style:none;display:grid;grid-template-columns:repeat(auto-fill,minmax(12rem,1fr));gap:1rem;padding:0}
+ul.gallery img{max-height:10rem}

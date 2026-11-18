@@ -1,0 +1,9 @@
+{{define "content"}}{{with .Data}}
+<h1>Notes{{with .Topic}}: {{.}}{{end}}</h1>
+<p class="filters">Topics: <a href="/notes">all</a>{{range .Topics}} · <a href="/notes?topic={{.Name}}">{{.Name}}</a> <span class="meta">{{.Count}}</span>{{end}}</p>
+{{range .Notes}}<article class="note">
+<header class="meta">#{{.ID}}{{with .Topic}} · <a href="/notes?topic={{.}}">{{.}}</a>{{end}}{{with .Page}} · on <a href="{{wiki .}}">{{.}}</a>{{end}} · {{.Author}} · {{template "when" .UpdatedAt}}</header>
+<div class="content">{{.HTML}}</div>
+</article>{{else}}<p class="meta">No notes.</p>{{end}}
+{{template "pager" .Pager}}
+{{end}}{{end}}

@@ -1,0 +1,211 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        # Pinned + latest, so upcoming-toolchain breakage shows up here before
+        # it reaches users. check-latest is what makes "1.x" mean the newest
+        # release rather than whatever setup-go's manifest last cached.
+        go: ["1.27", "1.x"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          check-latest: true
+          cache: true
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Test
+        run: go test -race ./...
+
+  lint:
+    name: lint & vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Exactly 1.27.0, matching the pinned linter's export-data support.
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.0"
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l cmd internal web/*.go)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt found unformatted files:"
+            echo "$unformatted"
+            exit 1
+          fi
+      # The embed_web files only compile once web/dist exists.
+      - name: Build web assets
+        run: make web.build
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags embed_web ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.1
+
+  # Three of the eight release architectures are 32-bit, and nothing in an
+  # amd64 test run notices an int32 overflow there. Compile them all here so
+  # a release is never where that is discovered.
+  cross:
+    name: cross-build (release architectures)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - run: make web.build
+      - name: Build every release architecture
+        run: |
+          set -euo pipefail
+          targets=(
+            "amd64:amd64:" "arm64:arm64:" "armhf:arm:GOARM=7" "armel:arm:GOARM=5"
+            "i386:386:GO386=softfloat" "ppc64el:ppc64le:" "riscv64:riscv64:" "s390x:s390x:"
+          )
+          fail=0
+          for t in "${targets[@]}"; do
+            IFS=: read -r debarch goarch extra <<< "$t"
+            if env CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" $extra go build -tags embed_web -o /dev/null ./cmd/kb; then
+              echo "ok    $debarch"
+            else
+              echo "::error::$debarch ($goarch $extra) failed to build"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  web:
+    name: web (bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Test the viewer scripts
+        run: make web.test
+      # .goreleaser.yaml runs make web.build as a before-hook; building it here
+      # stops a release from discovering a broken bundle after the tag exists.
+      - name: Build the viewer assets
+        run: make web.build
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          check-latest: true
+          cache: true
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
+
+  # The whole publishing path on every PR: build the real artifacts, build the
+  # real apt repository from them with the real script, and have apt consume
+  # it. Only the production signing key is swapped for a throwaway one.
+  release-dry-run:
+    name: release dry run (apt repo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27"
+          cache: true
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+      - name: Install apt repository tooling
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+      # Same pinned versions as release.yml: goreleaser-action verifies its own
+      # download with whatever cosign is on PATH.
+      - uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: "v2.6.5"
+      - uses: anchore/sbom-action/download-syft@v0
+        with:
+          syft-version: "v1.18.1"
+      - name: Build a snapshot release
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=sign,publish,announce
+      - name: Build and verify the apt repository
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME" && chmod 700 "$GNUPGHOME"
+          gpg --batch --quick-generate-key --passphrase '' "kb ci <ci@example.invalid>" default default never
+
+          mkdir -p "$RUNNER_TEMP/debs"
+          cp dist/*.deb "$RUNNER_TEMP/debs/"
+          .github/scripts/build-apt-repo.sh "$RUNNER_TEMP/debs" "$RUNNER_TEMP/site"
+
+          # Consume it as a user would, signature verification on, on a foreign
+          # architecture, so the non-amd64 indices are proven real.
+          A="$RUNNER_TEMP/aptroot"
+          mkdir -p "$A"/{etc/apt/sources.list.d,etc/apt/trusted.gpg.d,etc/apt/preferences.d,var/lib/apt/lists/partial,var/cache/apt/archives/partial,var/lib/dpkg}
+          touch "$A/var/lib/dpkg/status"
+          cp "$RUNNER_TEMP/site/kb-archive-keyring.gpg" "$A/etc/apt/trusted.gpg.d/kb.gpg"
+          echo "deb [signed-by=$A/etc/apt/trusted.gpg.d/kb.gpg arch=riscv64] file://$RUNNER_TEMP/site stable main" \
+            > "$A/etc/apt/sources.list.d/kb.list"
+          opts=(-o "Dir=$A" -o "Dir::State=$A/var/lib/apt"
+                -o "Dir::State::status=$A/var/lib/dpkg/status"
+                -o "Dir::Cache=$A/var/cache/apt"
+                -o "Dir::Etc::sourcelist=$A/etc/apt/sources.list.d/kb.list"
+                -o "Dir::Etc::sourceparts=-"
+                -o "Dir::Etc::trusted.gpg.d=$A/etc/apt/trusted.gpg.d"
+                -o "APT::Architecture=riscv64")
+          apt-get "${opts[@]}" update
+          apt-cache "${opts[@]}" policy kb
+          cd "$A" && apt-get "${opts[@]}" download kb
+          dpkg-deb -f kb_*.deb Package Version Architecture
+      - name: Smoke-test the amd64 binary
+        run: |
+          set -euo pipefail
+          bin=$(ls dist/kb_linux_amd64_v1/kb)
+          "$bin" version
+          export KB_DB="$RUNNER_TEMP/smoke.db"
+          echo 'Hello [world](kb:World).' | "$bin" put Hello
+          "$bin" special wanted | grep -q World
+          "$bin" db check

@@ -1,0 +1,11 @@
+{{define "content"}}{{with .Data}}
+<h1>{{.Heading}}</h1>
+<p class="filters">Sort: <a href="{{query "sort" "title"}}">title</a> · <a href="{{query "sort" "updated"}}">recently edited</a> · <a href="{{query "sort" "created"}}">newest</a> · <a href="{{query "sort" "backlinks"}}">most linked</a> · <a href="{{query "sort" "words"}}">longest</a></p>
+<table class="grid">
+<thead><tr><th>Title</th><th>Status</th><th>Words</th><th>Links in</th><th>Edited</th><th>Summary</th></tr></thead>
+<tbody>{{range .Pages}}<tr>
+<td><a href="{{wiki .Title}}">{{.Title}}</a></td><td>{{if .Status}}<span class="status s-{{.Status}}">{{.Status}}</span>{{end}}</td>
+<td>{{.Words}}</td><td>{{.Backlinks}}</td><td>{{template "when" .UpdatedAt}}</td><td class="lead">{{.Lead}}</td>
+</tr>{{else}}<tr><td colspan="6" class="meta">No pages.</td></tr>{{end}}</tbody></table>
+{{template "pager" .Pager}}
+{{end}}{{end}}

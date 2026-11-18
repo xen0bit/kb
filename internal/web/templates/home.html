@@ -1,0 +1,15 @@
+{{define "content"}}{{with .Data}}
+<h1>{{$.Site}}</h1>
+<p class="lede">{{.Stats.Pages}} pages · {{.Stats.Words}} words · {{.Stats.Files}} files · {{.Stats.Categories}} categories · {{.Stats.Revisions}} revisions · {{.Stats.WantedPages}} wanted pages</p>
+<p class="hint">Create a page titled <em>Main Page</em> to replace this dashboard.</p>
+<div class="cols">
+<section><h2>Recently edited</h2>
+<ul class="plain">{{range .Recent}}<li><a href="{{wiki .Title}}">{{.Title}}</a> <span class="meta">{{template "when" .UpdatedAt}}{{if .UpdatedBy}} by {{.UpdatedBy}}{{end}}</span></li>{{else}}<li class="meta">Nothing yet.</li>{{end}}</ul>
+<p><a href="/recent">All recent changes →</a></p></section>
+<section><h2>Most wanted</h2>
+<ul class="plain">{{range .Wanted}}<li><a class="new" href="{{wiki .Title}}">{{.Title}}</a> <span class="meta">{{.Count}} links</span></li>{{else}}<li class="meta">No red links.</li>{{end}}</ul>
+<p><a href="/special/wanted">All wanted pages →</a></p></section>
+<section><h2>Categories</h2>
+<ul class="plain">{{range .Categories}}<li><a href="/category/{{.Name}}">{{.Name}}</a> <span class="meta">{{.Count}}</span></li>{{else}}<li class="meta">None yet.</li>{{end}}</ul></section>
+</div>
+{{end}}{{end}}
