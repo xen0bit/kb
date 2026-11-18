@@ -192,6 +192,12 @@ func TestAgentSession(t *testing.T) {
 		t.Errorf("overview %s", ov)
 	}
 
+	fb := call(t, cs, "kb_feedback", map[string]any{"kind": "friction", "tool": "read_page", "message": "wanted X"}, false)
+	if !strings.Contains(fb, "recorded") {
+		t.Errorf("feedback %s", fb)
+	}
+	call(t, cs, "kb_feedback", map[string]any{"kind": "nope", "message": "x"}, true)
+
 	rr, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "kb://page/Sun_%28star%29"})
 	if err != nil || !strings.Contains(rr.Contents[0].Text, "A star") {
 		t.Errorf("resource %v %v", rr, err)

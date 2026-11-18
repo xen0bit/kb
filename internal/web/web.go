@@ -132,6 +132,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /file/{name...}", s.file)
 	mux.HandleFunc("GET /tasks", s.tasks)
 	mux.HandleFunc("GET /notes", s.notes)
+	mux.HandleFunc("GET /feedback", s.feedback)
 	mux.HandleFunc("GET /api/suggest", s.suggest)
 	mux.Handle("GET /static/", s.assets)
 	return secure(mux)
@@ -705,4 +706,15 @@ func jsonStrings(ss []string) string {
 	}
 	b, _ := json.Marshal(ss)
 	return string(b)
+}
+
+func (s *Server) feedback(w http.ResponseWriter, r *http.Request) {
+	off := intParam(r, "offset", 0)
+	status := r.URL.Query().Get("status")
+	list, total, err := s.st.ListFeedback(r.Context(), store.FeedbackFilter{Status: status, Tool: r.URL.Query().Get("tool"), Limit: 100, Offset: off})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.show(w, r, http.StatusOK, "feedback", "Feedback", map[string]any{"Items": list, "All": status == "all", "Pager": newPager(r, total, off, 100)})
 }

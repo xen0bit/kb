@@ -27,6 +27,21 @@ func (t *tools) register(s *mcp.Server) {
 	t.registerWrite(s)
 	t.registerFiles(s)
 	t.registerWork(s)
+	t.registerFeedback(s)
+}
+
+func (t *tools) registerFeedback(s *mcp.Server) {
+	addTool(s, t, &mcp.Tool{
+		Name:        "kb_feedback",
+		Description: "Tell kb's maintainers about kb itself, not about the kb's content: a tool that failed or behaved unexpectedly, a description that misled you, an error message that did not say how to recover, output that wasted tokens, or a tool you wished existed. Report it when it happens, in a sentence or two, and carry on with your task; it does not change the kb. Include the tool name and, for errors, what you sent.",
+		Annotations: writes("Send feedback", false),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, a feedbackArgs) ([]mcp.Content, error) {
+		f, err := t.st.AddFeedback(ctx, store.Feedback{Kind: a.Kind, Tool: a.Tool, Message: a.Message, Details: a.Details, Author: t.author(req, a.Author)})
+		if err != nil {
+			return nil, err
+		}
+		return text(fmt.Sprintf("feedback %d recorded, thank you", f.ID)), nil
+	})
 }
 
 // --- orient and find --------------------------------------------------------

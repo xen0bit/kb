@@ -5,6 +5,8 @@ const instructions = `kb is a Wikipedia-style knowledge base of markdown pages a
 
 Start every session with kb_overview: it shows the size of the kb, the latest changes, open tasks, recent notes and the most-wanted missing pages. Record progress as you go (task_* and note_write) so the next session, or another agent, can continue; resume with recent_changes after_id=<last id you saw>.
 
+If a kb tool confuses you, fails unexpectedly or is missing something you need, say so with kb_feedback (one or two sentences, then carry on).
+
 ` + conventions
 
 // conventions is the authoring guide, repeated in kb_overview because some

@@ -344,3 +344,11 @@ type changesArgs struct {
 	Target   string `json:"target,omitempty" jsonschema:"only changes to this exact page title, file name, task title or note topic"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"default 50, max 500"`
 }
+
+type feedbackArgs struct {
+	Kind    string `json:"kind" jsonschema:"bug (a tool misbehaved or errored wrongly), friction (it worked but was confusing, slow or wasteful), idea (something missing), or praise (something that worked well and should stay)"`
+	Tool    string `json:"tool,omitempty" jsonschema:"the tool this is about, e.g. edit_page"`
+	Message string `json:"message" jsonschema:"one or two sentences: what happened and what you expected"`
+	Details string `json:"details,omitempty" jsonschema:"optional: the arguments you sent, the error text, what you did instead"`
+	Author  string `json:"author,omitempty"`
+}

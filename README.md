@@ -93,6 +93,7 @@ goes in angle brackets: [relativity](<kb:Theory of relativity>).
 | Read | `read_page` (outline, a single section, a line range, an old revision; byte-capped and says where to continue), `page_links` (out, in, red), `page_history`, `diff_revisions` |
 | Write | `create_page`, `write_page` (needs `base_rev`), `edit_page` (str_replace edits, replace a section, append, prepend), `bulk_write` (up to 50 pages), `move_page`, `delete_page`, `restore_page`, `revert_page` |
 | Files | `upload_file`, `get_file` (images come back as image content), `list_files`, `delete_file` |
+| Feedback | `kb_feedback`: agents report a tool that failed, misled them or is missing; read with `kb feedback ls` or `/feedback` in the viewer |
 | Progress | `task_create`, `task_update`, `task_list`, `task_claim_next` (atomic and leased, so parallel agents never take the same task), `note_write`, `note_list` |
 
 There are also resources `kb://guide`, `kb://page/{title}` and `kb://file/{name}`.
@@ -111,6 +112,7 @@ kb history TITLE   kb diff REV [REV] kb ls [-sort updated]   kb search QUERY
 kb special KIND    kb recent        kb file put|get|ls|rm    kb task ls|add|done|claim
 kb note add|ls     kb export DIR [-portable]   kb import DIR
 kb db migrate|check|vacuum|stats|version|backup DEST
+kb feedback ls [-all] | resolve ID [-m NOTE] [-wontfix]
 ```
 
 `kb export` writes `pages/*.md`, `files/*` and a `manifest.json`, and

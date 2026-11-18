@@ -52,6 +52,7 @@ Data:
   kb export DIR [-portable]         pages/*.md, files/*, manifest.json
   kb import DIR                     the reverse; re-importing is a no-op
   kb db migrate|check|vacuum|stats|version|backup DEST
+  kb feedback ls [-all] [-tool T] | resolve ID [-m NOTE] [-wontfix]
 
 Every command takes -db PATH (default $KB_DB, else $XDG_DATA_HOME/kb/kb.db).
 Listing commands take -json. kb version prints the build.
@@ -114,6 +115,8 @@ func Run(args []string) int {
 		err = runImport(ctx, rest)
 	case "db":
 		err = runDB(ctx, rest)
+	case "feedback":
+		err = runFeedback(ctx, rest)
 	default:
 		fmt.Fprintf(os.Stderr, "kb: unknown command %q\n\n%s", cmd, usage)
 		return 2

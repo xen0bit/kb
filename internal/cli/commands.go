@@ -969,3 +969,70 @@ func runDB(ctx context.Context, args []string) error {
 	}
 	return nil
 }
+
+func runFeedback(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		args = []string{"ls"}
+	}
+	sub, args := args[0], args[1:]
+	c := newCommand("feedback "+sub, "...").withJSON()
+	all := c.fs.Bool("all", false, "include resolved feedback (ls)")
+	tool := c.fs.String("tool", "", "only about this tool (ls)")
+	kind := c.fs.String("kind", "", "only this kind (ls)")
+	note := c.fs.String("m", "", "resolution note (resolve)")
+	wontfix := c.fs.Bool("wontfix", false, "close as won't fix (resolve)")
+	pos, err := c.parse(args)
+	if err != nil {
+		return err
+	}
+	st, err := c.open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	switch sub {
+	case "ls", "list":
+		f := store.FeedbackFilter{Tool: *tool, Kind: *kind, Limit: 500}
+		if *all {
+			f.Status = "all"
+		}
+		list, total, err := st.ListFeedback(ctx, f)
+		if err != nil {
+			return err
+		}
+		if c.json() {
+			return printJSON(map[string]any{"total": total, "feedback": list})
+		}
+		for _, x := range list {
+			fmt.Printf("#%d %s [%s] %s %s by %s\n  %s\n", x.ID, when(x.At), x.Status, x.Kind, x.Tool, x.Author, x.Message)
+			if x.Details != "" {
+				fmt.Printf("  details: %s\n", oneLine(x.Details, 300))
+			}
+			if x.Resolution != "" {
+				fmt.Printf("  resolution: %s\n", x.Resolution)
+			}
+		}
+		if total == 0 {
+			fmt.Println("no feedback")
+		}
+	case "resolve":
+		if len(pos) != 1 {
+			return usageErr("give a feedback ID")
+		}
+		id, err := strconv.ParseInt(pos[0], 10, 64)
+		if err != nil {
+			return usageErr("ID must be a number")
+		}
+		status := "resolved"
+		if *wontfix {
+			status = "wontfix"
+		}
+		if err := st.ResolveFeedback(ctx, id, status, *note); err != nil {
+			return err
+		}
+		fmt.Printf("feedback %d: %s\n", id, status)
+	default:
+		return usageErr("unknown feedback command %q (ls, resolve)", sub)
+	}
+	return nil
+}
