@@ -37,8 +37,9 @@ i386, ppc64el, riscv64, s390x). Tarballs, `.rpm` and `.apk` are on
 ## Quick start
 
 ```bash
-# Give an agent the kb (Claude Code shown; any MCP client works)
-claude mcp add kb -- kb mcp
+# Give an agent the kb (any MCP client works)
+claude mcp add -s user kb -- kb mcp      # Claude Code
+kb mcp install opencode                  # opencode: global config plus the skill
 
 # Browse what it writes
 kb serve                       # http://127.0.0.1:8080/
@@ -50,6 +51,13 @@ before its first call:
 ```bash
 kb skill install               # ~/.claude/skills/kb/SKILL.md; kb skill print to read it
 ```
+
+`kb mcp install opencode` runs `opencode mcp add` for you, so the entry is
+in whatever shape your opencode version expects. It also installs the skill
+in `~/.config/opencode/skills/kb`, unless opencode already loads it from
+`~/.claude/skills/kb`. `-project` writes to `./opencode.json` and
+`.opencode/skills` instead, and `-db PATH` pins a database. From a checkout,
+`make mcp.opencode` does the same with a freshly installed build.
 
 The database lives at `$KB_DB`, else `$XDG_DATA_HOME/kb/kb.db` (usually
 `~/.local/share/kb/kb.db`). Every command takes `-db PATH`.
@@ -114,6 +122,7 @@ as RFC 3339.
 
 ```text
 kb mcp [-http ADDR]                 kb serve [-listen ADDR] [-mcp]
+kb mcp install opencode [-project] [-db PATH]
 kb get TITLE [-section S|-outline]  kb put TITLE [-f FILE] [-m MSG]
 kb edit TITLE                       kb mv FROM TO     kb rm TITLE   kb restore TITLE
 kb history TITLE   kb diff REV [REV] kb ls [-sort updated]   kb search QUERY

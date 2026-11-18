@@ -24,6 +24,17 @@ build-with-web: web.build
 install: web.build
 	CGO_ENABLED=0 go install -trimpath -tags embed_web -ldflags="$(LDFLAGS)" ./cmd/kb
 
+# Install from this checkout and register it with opencode (global config,
+# plus the agent skill). With the apt package, run: kb mcp install opencode
+GOBIN_DIR := $(shell go env GOBIN)
+ifeq ($(GOBIN_DIR),)
+GOBIN_DIR := $(shell go env GOPATH)/bin
+endif
+
+.PHONY: mcp.opencode
+mcp.opencode: install
+	$(GOBIN_DIR)/$(BIN) mcp install opencode
+
 .PHONY: test
 test:
 	go test -race ./...
@@ -83,6 +94,7 @@ help:
 	@echo "make build           build ./kb (assets from disk or fallback)"
 	@echo "make build-with-web  build ./kb with the Bun-built viewer assets embedded"
 	@echo "make install         go install with embedded assets"
+	@echo "make mcp.opencode    install, then register kb (and its skill) with opencode"
 	@echo "make test            Go tests (-race) and the viewer's bun tests"
 	@echo "make lint            go vet + golangci-lint, both build tag sets"
 	@echo "make web.build       build web/src into web/dist with bun"
