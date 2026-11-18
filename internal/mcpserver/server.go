@@ -88,7 +88,18 @@ func NewServer(st *store.Store, opts Options) *mcp.Server {
 
 // Serve runs the server over stdio until the client disconnects.
 func Serve(ctx context.Context, st *store.Store, opts Options) error {
-	err := NewServer(st, opts).Run(ctx, &mcp.StdioTransport{})
+	// The stdio transport blocks reading stdin and does not notice ctx being
+	// cancelled, so a SIGTERM would leave the process waiting for a client
+	// that may never close the pipe. Run it aside and return on whichever
+	// comes first; returning lets the caller close the store and exit.
+	errc := make(chan error, 1)
+	go func() { errc <- NewServer(st, opts).Run(ctx, &mcp.StdioTransport{}) }()
+	var err error
+	select {
+	case err = <-errc:
+	case <-ctx.Done():
+		return nil
+	}
 	// The client closing stdin is how a stdio session ends: not an error.
 	if err != nil && (errors.Is(err, io.EOF) || strings.Contains(err.Error(), "EOF") || errors.Is(err, context.Canceled)) {
 		return nil
