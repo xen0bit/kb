@@ -195,6 +195,13 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) migrate(ctx context.Context, backup bool) error {
+	return s.migrateTo(ctx, backup, 0)
+}
+
+// migrateTo migrates up to version target, or to the newest when target is
+// 0. Only tests stop short: it is how they build an old-schema database to
+// upgrade.
+func (s *Store) migrateTo(ctx context.Context, backup bool, target int) error {
 	var version int
 	if err := s.w.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("%s: %w", s.path, err)
@@ -206,6 +213,10 @@ func (s *Store) migrate(ctx context.Context, backup bool) error {
 	want := 0
 	if len(files) > 0 {
 		want = files[len(files)-1].version
+	}
+	if target > 0 && target < want {
+		want = target
+		files = files[:target]
 	}
 	if version > want {
 		return fmt.Errorf("%s: schema is version %d, newer than this binary's %d (upgrade kb)", s.path, version, want)

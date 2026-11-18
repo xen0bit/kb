@@ -184,7 +184,7 @@ func TestRewriteLinks(t *testing.T) {
 	if n != 3 {
 		t.Errorf("rewrote %d links: %q", n, out)
 	}
-	want := "See [P](kb:Physicist_%28profession%29), [Q](kb:Physicist_%28profession%29#Training \"t\"), [R](<kb:Physicist (profession)>) and [S](kb:Physics)."
+	want := "See [P](kb:Physicist_(profession)), [Q](kb:Physicist_(profession)#Training \"t\"), [R](<kb:Physicist (profession)>) and [S](kb:Physics)."
 	if out != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
 	}
@@ -192,6 +192,37 @@ func TestRewriteLinks(t *testing.T) {
 	for _, l := range d.Links[:1] {
 		if l.Key != Key("Physicist (profession)") {
 			t.Errorf("rewritten link resolves to %q", l.Key)
+		}
+	}
+}
+
+func TestRewriteBalancedParens(t *testing.T) {
+	doc := "See [M](kb:Mercury_(planet)), [O](kb:Mercury_(planet)#Orbit \"t\"), [E](kb:Earth) and `[c](kb:mercury_(planet))`.\n"
+	out, n := RewriteLinks(doc, Key("Mercury (planet)"), "Mercury")
+	want := "See [M](kb:Mercury), [O](kb:Mercury#Orbit \"t\"), [E](kb:Earth) and `[c](kb:Mercury)`.\n"
+	if n != 3 || out != want {
+		t.Errorf("rewrote %d:\n%s\nwant\n%s", n, out, want)
+	}
+	// Unrelated parentheses after a link are not swallowed.
+	out, n = RewriteLinks("([x](kb:A)) and (y)", Key("A"), "B (c)")
+	if n != 1 || out != "([x](kb:B_(c))) and (y)" {
+		t.Errorf("got %d %q", n, out)
+	}
+}
+
+func TestLinkForm(t *testing.T) {
+	for in, want := range map[string]string{
+		"Mercury (planet)": "Mercury_(planet)",
+		"Smiley :)":        "Smiley_:%29",
+		"A (b (c))":        "A_(b_(c))",
+		"50% off?":         "50%25_off%3F",
+	} {
+		if got := LinkForm(in); got != want {
+			t.Errorf("LinkForm(%q) = %q, want %q", in, got, want)
+		}
+		d, _ := Analyze("[x](kb:" + LinkForm(in) + ")")
+		if len(d.Links) != 1 || d.Links[0].Key != Key(in) {
+			t.Errorf("link to %q does not parse back: %+v", in, d.Links)
 		}
 	}
 }

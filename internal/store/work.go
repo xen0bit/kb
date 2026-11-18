@@ -36,7 +36,7 @@ type Task struct {
 }
 
 const taskCols = `t.id, COALESCE(t.parent_id, 0), t.title, t.body, t.status, t.priority, t.assignee, COALESCE(t.lease_until, 0),
-	COALESCE(t.page_key, ''), t.created_at, t.created_by, t.updated_at,
+	COALESCE((SELECT title FROM pages WHERE key = t.page_key), t.page_title, t.page_key, ''), t.created_at, t.created_by, t.updated_at,
 	(SELECT count(*) FROM tasks c WHERE c.parent_id = t.id),
 	(SELECT count(*) FROM tasks c WHERE c.parent_id = t.id AND c.status IN ('todo','doing','blocked'))`
 
@@ -81,13 +81,9 @@ func (s *Store) CreateTasks(ctx context.Context, ts []NewTask) ([]Task, error) {
 			if title == "" {
 				return fmt.Errorf("%w: task %d has no title", ErrInvalid, i+1)
 			}
-			var page any
-			if t.Page != "" {
-				k := wikitext.Key(t.Page)
-				if k == "" {
-					return fmt.Errorf("%w: task %d: %q is not a valid page title", ErrInvalid, i+1, t.Page)
-				}
-				page = k
+			page, pageTitle, err := pageRef(t.Page)
+			if err != nil {
+				return fmt.Errorf("task %d: %w", i+1, err)
 			}
 			if t.ParentID != 0 {
 				if _, err := s.getTask(ctx, tx, t.ParentID); err != nil {
@@ -95,8 +91,8 @@ func (s *Store) CreateTasks(ctx context.Context, ts []NewTask) ([]Task, error) {
 				}
 			}
 			now := s.ms()
-			r, err := tx.ExecContext(ctx, `INSERT INTO tasks (parent_id, title, body, priority, page_key, created_at, created_by, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, nullZero(t.ParentID), title, t.Body, t.Priority, page, now, t.Author, now)
+			r, err := tx.ExecContext(ctx, `INSERT INTO tasks (parent_id, title, body, priority, page_key, page_title, created_at, created_by, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, nullZero(t.ParentID), title, t.Body, t.Priority, page, pageTitle, now, t.Author, now)
 			if err != nil {
 				return err
 			}
@@ -193,23 +189,20 @@ func (s *Store) UpdateTask(ctx context.Context, u TaskUpdate) (*Task, error) {
 			}
 			t.ParentID = *u.ParentID
 		}
-		var page any
 		if u.Page != nil {
-			t.Page = ""
-			if *u.Page != "" {
-				t.Page = wikitext.Key(*u.Page)
-			}
+			t.Page = *u.Page
 		}
-		if t.Page != "" {
-			page = t.Page
+		page, pageTitle, err := pageRef(t.Page)
+		if err != nil {
+			return err
 		}
 		var lease any
 		if t.LeaseUntil > 0 {
 			lease = t.LeaseUntil
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET parent_id = ?, title = ?, body = ?, status = ?, priority = ?, assignee = ?,
-			lease_until = ?, page_key = ?, updated_at = ? WHERE id = ?`,
-			nullZero(t.ParentID), t.Title, t.Body, t.Status, t.Priority, t.Assignee, lease, page, s.ms(), t.ID); err != nil {
+			lease_until = ?, page_key = ?, page_title = ?, updated_at = ? WHERE id = ?`,
+			nullZero(t.ParentID), t.Title, t.Body, t.Status, t.Priority, t.Assignee, lease, page, pageTitle, s.ms(), t.ID); err != nil {
 			return err
 		}
 		comment := ""
@@ -385,21 +378,17 @@ func (s *Store) WriteNote(ctx context.Context, n NoteWrite) (*Note, error) {
 	if strings.TrimSpace(n.Body) == "" {
 		return nil, fmt.Errorf("%w: note body is empty", ErrInvalid)
 	}
-	var page any
-	if n.Page != "" {
-		k := wikitext.Key(n.Page)
-		if k == "" {
-			return nil, fmt.Errorf("%w: %q is not a valid page title", ErrInvalid, n.Page)
-		}
-		page = k
+	page, pageTitle, err := pageRef(n.Page)
+	if err != nil {
+		return nil, err
 	}
 	var out *Note
-	err := s.write(ctx, func(tx *sql.Tx) error {
+	err = s.write(ctx, func(tx *sql.Tx) error {
 		now := s.ms()
 		id := n.ID
 		if id == 0 {
-			r, err := tx.ExecContext(ctx, `INSERT INTO notes (topic, body, author, page_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-				strings.TrimSpace(n.Topic), n.Body, n.Author, page, now, now)
+			r, err := tx.ExecContext(ctx, `INSERT INTO notes (topic, body, author, page_key, page_title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				strings.TrimSpace(n.Topic), n.Body, n.Author, page, pageTitle, now, now)
 			if err != nil {
 				return err
 			}
@@ -418,9 +407,11 @@ func (s *Store) WriteNote(ctx context.Context, n NoteWrite) (*Note, error) {
 				topic = strings.TrimSpace(n.Topic)
 			}
 			if page == nil && cur.Page != "" {
-				page = cur.Page
+				if page, pageTitle, err = pageRef(cur.Page); err != nil {
+					return err
+				}
 			}
-			if _, err := tx.ExecContext(ctx, `UPDATE notes SET topic = ?, body = ?, page_key = ?, updated_at = ? WHERE id = ?`, topic, body, page, now, id); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE notes SET topic = ?, body = ?, page_key = ?, page_title = ?, updated_at = ? WHERE id = ?`, topic, body, page, pageTitle, now, id); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `DELETE FROM notes_fts WHERE rowid = ?`, id); err != nil {
@@ -446,7 +437,7 @@ func (s *Store) WriteNote(ctx context.Context, n NoteWrite) (*Note, error) {
 
 func (s *Store) getNote(ctx context.Context, q querier, id int64) (*Note, error) {
 	var n Note
-	err := q.QueryRowContext(ctx, `SELECT id, topic, body, author, COALESCE(page_key, ''), created_at, updated_at FROM notes WHERE id = ?`, id).Scan(
+	err := q.QueryRowContext(ctx, `SELECT id, topic, body, author, COALESCE((SELECT title FROM pages p WHERE p.key = notes.page_key), page_title, page_key, ''), created_at, updated_at FROM notes WHERE id = ?`, id).Scan(
 		&n.ID, &n.Topic, &n.Body, &n.Author, &n.Page, &n.CreatedAt, &n.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: no note %d", ErrNotFound, id)
@@ -500,7 +491,7 @@ func (s *Store) ListNotes(ctx context.Context, f NoteFilter) ([]Note, int, error
 	if err := s.r.QueryRowContext(ctx, `SELECT count(*) FROM `+from+w, args...).Scan(&total); err != nil {
 		return nil, 0, ftsErr(err)
 	}
-	rows, err := s.r.QueryContext(ctx, `SELECT n.id, n.topic, n.body, n.author, COALESCE(n.page_key, ''), n.created_at, n.updated_at FROM `+
+	rows, err := s.r.QueryContext(ctx, `SELECT n.id, n.topic, n.body, n.author, COALESCE((SELECT title FROM pages p WHERE p.key = n.page_key), n.page_title, n.page_key, ''), n.created_at, n.updated_at FROM `+
 		from+w+` ORDER BY `+order+` LIMIT ? OFFSET ?`, append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, ftsErr(err)
@@ -544,4 +535,17 @@ func scanCounts(rows *sql.Rows) ([]Count, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// pageRef turns an optional page title into the key it is looked up by and
+// the title as written, both nil when there is no page.
+func pageRef(title string) (key, display any, err error) {
+	if strings.TrimSpace(title) == "" {
+		return nil, nil, nil
+	}
+	n, err := wikitext.NormalizeTitle(title)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %q is not a valid page title: %v", ErrInvalid, title, err)
+	}
+	return strings.ToLower(n), n, nil
 }

@@ -52,6 +52,11 @@ Data:
   kb export DIR [-portable]         pages/*.md, files/*, manifest.json
   kb import DIR                     the reverse; re-importing is a no-op
   kb db migrate|check|vacuum|stats|version|backup DEST
+  kb feedback ls [-all] [-tool T] | resolve ID [-m NOTE] [-wontfix]
+
+Agent skill:
+  kb skill install [-dir DIR] [-force]   write SKILL.md for Claude Code (default ~/.claude/skills/kb)
+  kb skill print                    print SKILL.md
 
 Every command takes -db PATH (default $KB_DB, else $XDG_DATA_HOME/kb/kb.db).
 Listing commands take -json. kb version prints the build.
@@ -63,8 +68,8 @@ func Run(args []string) int {
 		fmt.Fprint(os.Stderr, usage)
 		return 2
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, cleanup := shutdownContext()
+	defer cleanup()
 	cmd, rest := args[0], args[1:]
 	var err error
 	switch cmd {
@@ -114,6 +119,10 @@ func Run(args []string) int {
 		err = runImport(ctx, rest)
 	case "db":
 		err = runDB(ctx, rest)
+	case "feedback":
+		err = runFeedback(ctx, rest)
+	case "skill":
+		err = runSkill(rest)
 	default:
 		fmt.Fprintf(os.Stderr, "kb: unknown command %q\n\n%s", cmd, usage)
 		return 2
@@ -133,6 +142,43 @@ func Run(args []string) int {
 }
 
 var errUsage = errors.New("usage")
+
+// shutdownGrace is how long a clean shutdown may take after a signal before
+// the process exits anyway.
+const shutdownGrace = 5 * time.Second
+
+// shutdownContext is cancelled by the first SIGINT or SIGTERM, so commands
+// can close the kb cleanly. Shutdown must not be able to hang: after the
+// first signal the default handling is restored, so a second signal kills
+// the process, and if the command has not returned within shutdownGrace the
+// process exits regardless. (kb mcp servers were found still running after
+// SIGTERM once their client had reconnected; this bounds that whatever the
+// cause.)
+func shutdownContext() (context.Context, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-sigc:
+			signal.Stop(sigc)
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(shutdownGrace):
+				fmt.Fprintln(os.Stderr, "kb: shutdown did not finish in time; exiting")
+				os.Exit(1)
+			}
+		case <-done:
+		}
+	}()
+	return ctx, func() {
+		signal.Stop(sigc)
+		close(done)
+		cancel()
+	}
+}
 
 func usageErr(format string, a ...any) error {
 	return fmt.Errorf("%w: %s", errUsage, fmt.Sprintf(format, a...))

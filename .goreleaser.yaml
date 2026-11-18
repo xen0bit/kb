@@ -79,6 +79,10 @@ nfpms:
     contents:
       - src: README.md
         dst: /usr/share/doc/kb/README.md
+      # The agent skill, for tools that read skills from a directory. The
+      # binary carries the same file: `kb skill install`.
+      - src: internal/skill/SKILL.md
+        dst: /usr/share/kb/skills/kb/SKILL.md
 
 checksum:
   name_template: "checksums.txt"

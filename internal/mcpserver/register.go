@@ -27,6 +27,21 @@ func (t *tools) register(s *mcp.Server) {
 	t.registerWrite(s)
 	t.registerFiles(s)
 	t.registerWork(s)
+	t.registerFeedback(s)
+}
+
+func (t *tools) registerFeedback(s *mcp.Server) {
+	addTool(s, t, &mcp.Tool{
+		Name:        "kb_feedback",
+		Description: "Tell kb's maintainers about kb itself, not about the kb's content: a tool that failed or behaved unexpectedly, a description that misled you, an error message that did not say how to recover, output that wasted tokens, or a tool you wished existed. Report it when it happens, in a sentence or two, and carry on with your task; it does not change the kb. Include the tool name and, for errors, what you sent.",
+		Annotations: writes("Send feedback", false),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, a feedbackArgs) ([]mcp.Content, error) {
+		f, err := t.st.AddFeedback(ctx, store.Feedback{Kind: a.Kind, Tool: a.Tool, Message: a.Message, Details: a.Details, Author: t.author(req, a.Author)})
+		if err != nil {
+			return nil, err
+		}
+		return text(fmt.Sprintf("feedback %d recorded, thank you", f.ID)), nil
+	})
 }
 
 // --- orient and find --------------------------------------------------------
@@ -34,9 +49,9 @@ func (t *tools) register(s *mcp.Server) {
 func (t *tools) registerFind(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "kb_overview",
-		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories; and the conventions for writing pages (link syntax, frontmatter, redirects).",
+		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories. Pass conventions=true for the page-writing conventions (link syntax, frontmatter, redirects) if you have not seen them in the server instructions or the kb skill.",
 		Annotations: readOnly("Overview"),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ overviewArgs) ([]mcp.Content, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a overviewArgs) ([]mcp.Content, error) {
 		st, err := t.st.Stats(ctx)
 		if err != nil {
 			return nil, err
@@ -76,9 +91,16 @@ func (t *tools) registerFind(s *mcp.Server) {
 			"open_task_count": openTasks, "recent_notes": notes, "note_topics": topics, "top_categories": cats,
 		}
 		if st.Pages == 0 {
-			out["hint"] = "The kb is empty. Plan the work as tasks (task_create), then write pages; red links you leave become the wanted list."
+			out["hint"] = "The kb is empty. Plan the work as tasks (task_create), then write pages; red links you leave become the wanted list. If you have not seen the page-writing conventions (link syntax, frontmatter), call kb_overview conventions=true."
 		}
-		return text(toJSON(out) + "\n\n" + conventions), nil
+		// The conventions are in the server instructions and the kb skill;
+		// repeating them unasked costs an agent that already has them ~600
+		// tokens. Agents whose client dropped the instructions are pointed
+		// at conventions=true instead.
+		if a.Conventions {
+			return text(toJSON(out) + "\n\n" + conventions), nil
+		}
+		return jsonText(out), nil
 	})
 
 	addTool(s, t, &mcp.Tool{
@@ -125,7 +147,7 @@ func (t *tools) registerFind(s *mcp.Server) {
 
 	addTool(s, t, &mcp.Tool{
 		Name:        "resolve_titles",
-		Description: "Look up many titles at once (up to 200): for each, whether it exists, is a redirect (and to what), is an alias of another page, was deleted, or is missing (with how many pages already link to it and near-match suggestions). Each result carries the kb: link destination to use. Use it before linking, and to check whether articles you plan to write already exist.",
+		Description: "Look up many titles at once (up to 200), e.g. {\"titles\":[\"Sun\",\"Mercury\"]}: for each, whether it exists, is a redirect (and to what), is an alias of another page, was deleted, or is missing (with how many pages already link to it, and suggestions: disambiguated titles such as \"Mercury (planet)\" for \"Mercury\", then near spellings). Each result carries the kb: link destination to use. Use it before linking, and to check whether articles you plan to write already exist.",
 		Annotations: readOnly("Resolve titles"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, a resolveArgs) ([]mcp.Content, error) {
 		if len(a.Titles) == 0 || len(a.Titles) > 200 {
@@ -222,6 +244,14 @@ func (t *tools) registerRead(s *mcp.Server) {
 		Annotations: readOnly("Read page"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, a readArgs) ([]mcp.Content, error) {
 		return t.readPage(ctx, a)
+	})
+
+	addTool(s, t, &mcp.Tool{
+		Name:        "check_page",
+		Description: "Review one page the way an editor would, in one call: its red links (each with how many pages want it), every file it embeds or links with whether it was uploaded, kb: links that did not parse, its sections, categories, status and infobox fields, inbound and outbound link counts, and a problems list (orphan, dead end, uncategorized, red links, missing files, malformed links). Use it after writing or editing a page instead of separate page_links and special_pages calls.",
+		Annotations: readOnly("Check page"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a checkArgs) ([]mcp.Content, error) {
+		return t.checkPage(ctx, a.Title)
 	})
 
 	addTool(s, t, &mcp.Tool{
@@ -434,7 +464,7 @@ func (t *tools) registerWrite(s *mcp.Server) {
 
 	addTool(s, t, &mcp.Tool{
 		Name:        "edit_page",
-		Description: "Change part of a page as one new revision, using exactly one of: edits (str_replace pairs, applied in order; each old_text must occur exactly once, so include enough context), section + section_text (replace a whole section, heading and subsections included; empty text deletes it), append (add at the end) or prepend (add at the top, after frontmatter). base_rev is optional: str_replace edits check themselves against the current text.",
+		Description: "Change part of a page as one new revision, e.g. {\"title\":\"Venus\",\"edits\":[{\"old_text\":\"about 225 days\",\"new_text\":\"224.7 days\"}],\"comment\":\"precise period\"}. Use exactly one of: edits (str_replace pairs, applied in order; each old_text must occur exactly once, so include enough context), section + section_text (replace a whole section, heading and subsections included; empty text deletes it), append (add at the end) or prepend (add at the top, after frontmatter). base_rev is optional: str_replace edits check themselves against the current text.",
 		Annotations: writes("Edit page", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a editArgs) ([]mcp.Content, error) {
 		r, err := t.st.EditPage(ctx, store.EditRequest{Title: a.Title, BaseRev: a.BaseRev, Edits: a.Edits, Section: a.Section, SectionText: a.SectionText,
@@ -495,7 +525,7 @@ func (t *tools) registerWrite(s *mcp.Server) {
 
 	addTool(s, t, &mcp.Tool{
 		Name:        "bulk_write",
-		Description: fmt.Sprintf("Create or replace up to %d pages in one call; each page succeeds or fails on its own and the result reports each (rev, red_links, or error). mode per page: create (default), replace (needs base_rev) or upsert. The fastest way to write many short articles or stubs.", maxBulkPages),
+		Description: fmt.Sprintf("Create or replace up to %d pages in one call: {\"pages\":[{\"title\":\"Venus\",\"body\":\"---\\ncategories: [Planets]\\n---\\nVenus is ...\"}, ...], \"comment\":\"...\"}. Each page succeeds or fails on its own and the result reports each (rev, or error). mode per page: create (default), replace (needs base_rev) or upsert. red_links are reported after the whole batch is written, so links between pages in the same batch are not red. The fastest way to write many articles or stubs.", maxBulkPages),
 		Annotations: writes("Bulk write", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a bulkArgs) ([]mcp.Content, error) {
 		if len(a.Pages) == 0 || len(a.Pages) > maxBulkPages {
@@ -541,6 +571,15 @@ func (t *tools) registerWrite(s *mcp.Server) {
 			okN++
 			out = append(out, item{Title: r.Title, OK: true, Result: r})
 		}
+		// Red links as of the end of the batch, not of each page's write.
+		for i := range out {
+			if out[i].OK {
+				red, files, err := t.st.LinkReport(ctx, out[i].Title)
+				if err == nil {
+					out[i].Result.RedLinks, out[i].Result.NoFiles = red, files
+				}
+			}
+		}
 		return jsonText(map[string]any{"written": okN, "failed": len(a.Pages) - okN, "pages": out}), nil
 	})
 }
@@ -550,12 +589,23 @@ func (t *tools) registerWrite(s *mcp.Server) {
 func (t *tools) registerFiles(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "upload_file",
-		Description: "Upload an image or other file (base64). Embed it in a page with the returned markdown: ![alt](kb-file:Name.png) for images, [label](kb-file:Name.pdf) otherwise. Identical bytes are stored once. Replacing an existing file needs its base_rev; old versions are kept.",
+		Description: "Upload an image or other file. Names follow title rules: underscores and spaces are the same, so Inner_planet_orbits.svg is stored as \"Inner planet orbits.svg\" and either spelling reaches it. Text formats such as SVG, CSV or JSON go in text as they are, e.g. {\"name\":\"Orbits.svg\",\"text\":\"<svg xmlns=...>...</svg>\"}; binary files go in data_base64. Embed it in a page with the returned markdown: ![alt](kb-file:Name.png) for images, [label](kb-file:Name.pdf) otherwise. Identical bytes are stored once. Replacing an existing file needs its base_rev; old versions are kept.",
 		Annotations: writes("Upload file", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a uploadArgs) ([]mcp.Content, error) {
-		data, mt, err := decodeBase64(a.Data)
-		if err != nil {
-			return nil, fmt.Errorf("%w: data_base64 is not valid base64: %v", store.ErrInvalid, err)
+		var data []byte
+		var mt string
+		switch {
+		case a.Text != "" && a.Data != "":
+			return nil, fmt.Errorf("%w: give text or data_base64, not both", store.ErrInvalid)
+		case a.Text != "":
+			data = []byte(a.Text)
+		case a.Data != "":
+			var err error
+			if data, mt, err = decodeBase64(a.Data); err != nil {
+				return nil, fmt.Errorf("%w: data_base64 is not valid base64 (%v); for a text file such as SVG, send its contents in text instead", store.ErrInvalid, err)
+			}
+		default:
+			return nil, fmt.Errorf("%w: give the contents in text (text files such as SVG) or data_base64 (binary files)", store.ErrInvalid)
 		}
 		if a.MIME != "" {
 			mt = a.MIME
@@ -581,7 +631,7 @@ func (t *tools) registerFiles(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		meta := map[string]any{"file": f, "markdown": store.EmbedMarkdown(f.Name, f.MIME)}
+		meta := map[string]any{"file": f, "markdown": store.EmbedMarkdown(f.Name, f.MIME, f.Description)}
 		c := jsonText(meta)
 		if !a.Content {
 			return c, nil
@@ -636,11 +686,21 @@ func isTextMIME(m string) bool {
 func (t *tools) registerWork(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "task_create",
-		Description: "Create tasks, up to 500 per call: a plan of work that outlives your context. Tasks nest (parent_id), carry a priority (higher first) and can name the page they are about. Several agents can share one backlog with task_claim_next.",
+		Description: "Create tasks: a plan of work that outlives your context. Many at once: {\"tasks\":[{\"title\":\"Write Venus\",\"body\":\"...\",\"priority\":2,\"page\":\"Venus\"}, ...]} (up to 500); one: {\"title\":\"Write Venus\"}. Tasks nest (parent_id), carry a priority (higher first) and can name the page they are about. Several agents can share one backlog with task_claim_next.",
 		Annotations: writes("Create tasks", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a taskCreateArgs) ([]mcp.Content, error) {
 		if len(a.Tasks) > 500 {
 			return nil, fmt.Errorf("%w: at most 500 tasks per call", store.ErrInvalid)
+		}
+		if a.Title != "" {
+			if len(a.Tasks) > 0 {
+				return nil, fmt.Errorf("%w: give tasks or a single task's title, not both", store.ErrInvalid)
+			}
+			o := a.newTaskArgOptional
+			a.Tasks = []newTaskArg{{Title: o.Title, Body: o.Body, Priority: o.Priority, ParentID: o.ParentID, Page: o.Page}}
+		}
+		if len(a.Tasks) == 0 {
+			return nil, fmt.Errorf("%w: give tasks:[{title, ...}] or a single task's title", store.ErrInvalid)
 		}
 		author := t.author(req, a.Author)
 		in := make([]store.NewTask, len(a.Tasks))
@@ -663,15 +723,44 @@ func (t *tools) registerWork(s *mcp.Server) {
 
 	addTool(s, t, &mcp.Tool{
 		Name:        "task_update",
-		Description: "Update a task: status (todo, doing, blocked, done, dropped), priority, assignee, title, body, parent, page; or append a line to its body as a work log. Marking it done or dropped releases its lease; updating it while doing renews nothing, so claim again or set status doing to extend.",
+		Description: "Update one task (id) or several at once (ids): status (todo, doing, blocked, done, dropped), priority, assignee, title, body, parent, page; or append a line to the body as a work log. Example: {\"ids\":[1,2,3],\"status\":\"done\"}. Marking a task done or dropped releases its lease; set status doing again to extend one. Returns each task's id, title and status (read a task in full with task_list id=...).",
 		Annotations: writes("Update task", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a taskUpdateArgs) ([]mcp.Content, error) {
-		tk, err := t.st.UpdateTask(ctx, store.TaskUpdate{ID: a.ID, Status: a.Status, Priority: a.Priority, Assignee: a.Assignee, Title: a.Title,
-			Body: a.Body, AppendBody: a.Append, ParentID: a.ParentID, Page: a.Page, Author: t.author(req, a.Author)})
-		if err != nil {
-			return nil, err
+		ids := a.IDs
+		if a.ID != 0 {
+			ids = append([]int64{a.ID}, ids...)
 		}
-		return jsonText(tk), nil
+		if len(ids) == 0 || len(ids) > 500 {
+			return nil, fmt.Errorf("%w: give id, or ids with 1 to 500 task ids", store.ErrInvalid)
+		}
+		type brief struct {
+			ID         int64  `json:"id"`
+			Title      string `json:"title,omitempty"`
+			Status     string `json:"status,omitempty"`
+			Assignee   string `json:"assignee,omitempty"`
+			LeaseUntil int64  `json:"lease_until,omitempty"`
+			Error      string `json:"error,omitempty"`
+		}
+		author := t.author(req, a.Author)
+		var out []brief
+		failed := 0
+		for _, id := range ids {
+			tk, err := t.st.UpdateTask(ctx, store.TaskUpdate{ID: id, Status: a.Status, Priority: a.Priority, Assignee: a.Assignee, Title: a.Title,
+				Body: a.Body, AppendBody: a.Append, ParentID: a.ParentID, Page: a.Page, Author: author})
+			if err != nil {
+				if len(ids) == 1 {
+					return nil, err
+				}
+				failed++
+				out = append(out, brief{ID: id, Error: err.Error()})
+				continue
+			}
+			out = append(out, brief{ID: tk.ID, Title: tk.Title, Status: tk.Status, Assignee: tk.Assignee, LeaseUntil: tk.LeaseUntil})
+		}
+		if len(ids) == 1 {
+			return jsonText(out[0]), nil
+		}
+		return jsonText(map[string]any{"updated": len(ids) - failed, "failed": failed, "tasks": out}), nil
 	})
 
 	addTool(s, t, &mcp.Tool{
@@ -780,4 +869,97 @@ func boolOr(b *bool, d bool) bool {
 		return d
 	}
 	return *b
+}
+
+func (t *tools) checkPage(ctx context.Context, title string) ([]mcp.Content, error) {
+	p, err := t.st.GetPage(ctx, title, store.GetOptions{Body: true})
+	if err != nil {
+		return nil, err
+	}
+	doc, err := wikitext.Analyze(p.Body)
+	if err != nil {
+		return nil, err
+	}
+	red, files, err := t.st.LinkReport(ctx, p.Title)
+	if err != nil {
+		return nil, err
+	}
+	type embed struct {
+		Name     string `json:"name"`
+		Uploaded bool   `json:"uploaded"`
+		MIME     string `json:"mime,omitempty"`
+	}
+	var embeds []embed
+	if len(doc.Files) > 0 {
+		keys := make([]string, len(doc.Files))
+		for i, f := range doc.Files {
+			keys[i] = strings.ToLower(f)
+		}
+		have, err := t.st.ExistingFiles(ctx, keys)
+		if err != nil {
+			return nil, err
+		}
+		for i, f := range doc.Files {
+			mt, ok := have[keys[i]]
+			embeds = append(embeds, embed{Name: f, Uploaded: ok, MIME: mt})
+		}
+	}
+	out, in, err := t.st.LinkCounts(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	type redLink struct {
+		Title    string `json:"title"`
+		WantedBy int    `json:"wanted_by"`
+	}
+	var reds []redLink
+	if len(red) > 0 {
+		res, err := t.st.Resolve(ctx, red, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range res {
+			reds = append(reds, redLink{Title: r.Title, WantedBy: r.Backlinks})
+		}
+	}
+	var sections []string
+	for _, sec := range wikitext.Outline(p.Body)[1:] {
+		sections = append(sections, sec.Path)
+	}
+	var propKeys []string
+	if len(p.Props) > 0 {
+		propKeys = wikitext.SortedPropKeys(p.Props)
+	}
+	var problems []string
+	if p.RedirectTo == "" {
+		if in == 0 {
+			problems = append(problems, "orphan: no other page links here")
+		}
+		if out == 0 {
+			problems = append(problems, "dead end: links to no other page")
+		}
+		if len(p.Categories) == 0 {
+			problems = append(problems, "uncategorized: no categories in frontmatter")
+		}
+	}
+	if len(reds) > 0 {
+		problems = append(problems, fmt.Sprintf("%d red links (fine if intended: they join special_pages kind=wanted)", len(reds)))
+	}
+	if len(files) > 0 {
+		problems = append(problems, fmt.Sprintf("%d embedded files not uploaded", len(files)))
+	}
+	var warnings []string
+	for _, m := range doc.Malformed {
+		warnings = append(warnings, fmt.Sprintf("(%s) is not a link: use underscores for spaces or wrap the destination in <>", m))
+		problems = append(problems, "malformed link: "+m)
+	}
+	res := map[string]any{
+		"title": p.Title, "rev": p.Rev, "status": p.Status, "categories": p.Categories, "aliases": p.Aliases,
+		"infobox_fields": propKeys, "words": p.Words, "sections": sections, "links_out": out, "backlinks": in,
+		"red_links": reds, "files": embeds, "missing_files": files, "warnings": warnings, "problems": problems, "ok": len(problems) == 0,
+	}
+	if p.RedirectTo != "" {
+		res["redirect_to"] = p.RedirectTo
+	}
+	return jsonText(res), nil
 }

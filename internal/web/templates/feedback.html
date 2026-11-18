@@ -1,0 +1,13 @@
+{{define "content"}}{{with .Data}}
+<h1>Agent feedback</h1>
+<p class="filters">Reports agents sent with <code>kb_feedback</code> about kb itself. {{if .All}}<a href="/feedback">open only</a>{{else}}<a href="/feedback?status=all">include resolved</a>{{end}} · resolve with <code>kb feedback resolve ID</code></p>
+<table class="grid">
+<thead><tr><th>#</th><th>When</th><th>Kind</th><th>Tool</th><th>Report</th><th>Author</th><th>Status</th></tr></thead>
+<tbody>{{range .Items}}<tr>
+<td>{{.ID}}</td><td>{{template "when" .At}}</td><td><span class="tag">{{.Kind}}</span></td>
+<td>{{if .Tool}}<a href="/feedback?tool={{.Tool}}{{if $.Data.All}}&amp;status=all{{end}}"><code>{{.Tool}}</code></a>{{end}}</td>
+<td>{{.Message}}{{with .Details}}<details><summary class="meta">details</summary><pre class="body">{{.}}</pre></details>{{end}}{{with .Resolution}}<p class="meta">Resolution: {{.}}</p>{{end}}</td>
+<td>{{.Author}}</td><td><span class="status">{{.Status}}</span></td>
+</tr>{{else}}<tr><td colspan="7" class="meta">No feedback.</td></tr>{{end}}</tbody></table>
+{{template "pager" .Pager}}
+{{end}}{{end}}

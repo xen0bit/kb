@@ -88,7 +88,7 @@ func TestAgentSession(t *testing.T) {
 	}
 
 	ov := call(t, cs, "kb_overview", nil, false)
-	if !strings.Contains(ov, `"hint"`) || !strings.Contains(ov, "kb:Page_Title") {
+	if !strings.Contains(ov, `"hint"`) || !strings.Contains(ov, "conventions=true") || strings.Contains(ov, "Writing pages:") {
 		t.Errorf("overview of empty kb: %s", ov)
 	}
 
@@ -125,7 +125,7 @@ func TestAgentSession(t *testing.T) {
 
 	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"))
 	up := decode(t, call(t, cs, "upload_file", map[string]any{"name": "Solar_system.png", "data_base64": png, "description": "diagram"}, false))
-	if up["markdown"] != "![Solar system.png](kb-file:Solar_system.png)" {
+	if up["markdown"] != "![diagram](kb-file:Solar_system.png)" {
 		t.Errorf("upload %v", up)
 	}
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_file", Arguments: map[string]any{"name": "solar system.png", "content": true}})
@@ -191,6 +191,12 @@ func TestAgentSession(t *testing.T) {
 	if !strings.Contains(ov, "Solar System drafted") || strings.Contains(ov, `"hint"`) {
 		t.Errorf("overview %s", ov)
 	}
+
+	fb := call(t, cs, "kb_feedback", map[string]any{"kind": "friction", "tool": "read_page", "message": "wanted X"}, false)
+	if !strings.Contains(fb, "recorded") {
+		t.Errorf("feedback %s", fb)
+	}
+	call(t, cs, "kb_feedback", map[string]any{"kind": "nope", "message": "x"}, true)
 
 	rr, err := cs.ReadResource(context.Background(), &mcp.ReadResourceParams{URI: "kb://page/Sun_%28star%29"})
 	if err != nil || !strings.Contains(rr.Contents[0].Text, "A star") {
@@ -276,4 +282,95 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	r = r.Clone(r.Context())
 	r.Header.Set("Authorization", "Bearer "+b.token)
 	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestExerciseFindings replays the friction a Sonnet agent reported in the
+// first usability exercise, one regression check per report.
+func TestExerciseFindings(t *testing.T) {
+	cs := connect(t, newStore(t))
+
+	// bulk_write: links between pages of one batch are not reported red.
+	bulk := decode(t, call(t, cs, "bulk_write", map[string]any{"pages": []any{
+		map[string]any{"title": "Mercury (planet)", "body": "Near [Venus](kb:Venus) and the [Sun](kb:Sun)."},
+		map[string]any{"title": "Venus", "body": "Near [Mercury](kb:Mercury_(planet))."},
+	}}, false))
+	first := bulk["pages"].([]any)[0].(map[string]any)["result"].(map[string]any)
+	if red := first["red_links"].([]any); len(red) != 1 || red[0] != "Sun" {
+		t.Errorf("bulk red links %v", red)
+	}
+
+	// resolve_titles suggests disambiguated titles.
+	rs := decode(t, call(t, cs, "resolve_titles", map[string]any{"titles": []any{"Mercury (planet)"}}, false))
+	if l := rs["titles"].([]any)[0].(map[string]any)["link"]; l != "kb:Mercury_(planet)" {
+		t.Errorf("resolve link %v", l)
+	}
+	res := decode(t, call(t, cs, "resolve_titles", map[string]any{"titles": []any{"Mercury"}}, false))
+	r0 := res["titles"].([]any)[0].(map[string]any)
+	if sug, _ := r0["did_you_mean"].([]any); len(sug) == 0 || sug[0] != "Mercury (planet)" {
+		t.Errorf("resolve %v", r0)
+	}
+
+	// upload_file takes text files as text, and utf8 data URLs.
+	svg := `<svg xmlns="http://www.w3.org/2000/svg"><circle r="5"/></svg>`
+	up := decode(t, call(t, cs, "upload_file", map[string]any{"name": "Dot.svg", "text": svg}, false))
+	if up["mime"] != "image/svg+xml" || up["size"].(float64) != float64(len(svg)) {
+		t.Errorf("text upload %v", up)
+	}
+	up = decode(t, call(t, cs, "upload_file", map[string]any{"name": "Note.txt", "data_base64": "data:text/plain;charset=utf-8,hello%20world"}, false))
+	if up["size"].(float64) != 11 {
+		t.Errorf("utf8 data URL upload %v", up)
+	}
+	call(t, cs, "upload_file", map[string]any{"name": "None.txt"}, true)
+
+	// task_create accepts a single task; tasks show the page's display title.
+	one := decode(t, call(t, cs, "task_create", map[string]any{"title": "Polish Mercury", "page": "mercury_(planet)"}, false))
+	tk := one["tasks"].([]any)[0].(map[string]any)
+	if tk["page"] != "Mercury (planet)" {
+		t.Errorf("task page %v", tk["page"])
+	}
+	call(t, cs, "task_create", map[string]any{"tasks": []any{map[string]any{"title": "A"}, map[string]any{"title": "B"}}}, false)
+
+	// task_update takes several ids and answers briefly.
+	upd := decode(t, call(t, cs, "task_update", map[string]any{"ids": []any{1, 2, 3, 99}, "status": "done"}, false))
+	if upd["updated"].(float64) != 3 || upd["failed"].(float64) != 1 {
+		t.Errorf("batch update %v", upd)
+	}
+	single := decode(t, call(t, cs, "task_update", map[string]any{"id": 1, "status": "todo"}, false))
+	if _, hasBody := single["body"]; hasBody || single["status"] != "todo" {
+		t.Errorf("single update %v", single)
+	}
+	call(t, cs, "task_update", map[string]any{"status": "done"}, true)
+
+	// check_page reports everything an editor checks in one call.
+	call(t, cs, "create_page", map[string]any{"title": "Earth", "body": "---\ncategories: [Planets]\nmass_kg: 5.97e24\n---\nOrbits the [Sun](kb:Sun); see [x](kb:Not a link).\n\n![d](kb-file:Missing.png)\n\n## Orbit\n\nYes.\n"}, false)
+	chk := decode(t, call(t, cs, "check_page", map[string]any{"title": "earth"}, false))
+	reds := chk["red_links"].([]any)
+	if len(reds) != 1 || reds[0].(map[string]any)["title"] != "Sun" || reds[0].(map[string]any)["wanted_by"].(float64) != 2 {
+		t.Errorf("check red links %v", chk["red_links"])
+	}
+	if f := chk["files"].([]any); len(f) != 1 || f[0].(map[string]any)["uploaded"] != false {
+		t.Errorf("check files %v", chk["files"])
+	}
+	if chk["ok"] != false || len(chk["missing_files"].([]any)) != 1 || len(chk["warnings"].([]any)) != 1 ||
+		chk["infobox_fields"].([]any)[0] != "mass_kg" || chk["sections"].([]any)[0] != "Orbit" {
+		t.Errorf("check %v", chk)
+	}
+	if !strings.Contains(toJSON(chk["problems"]), "orphan") {
+		t.Errorf("problems %v", chk["problems"])
+	}
+
+	// kb_overview leaves out the conventions once the kb has pages.
+	ov := call(t, cs, "kb_overview", nil, false)
+	if strings.Contains(ov, "Writing pages:") {
+		t.Errorf("overview repeats conventions: %.300s", ov)
+	}
+	if !strings.Contains(call(t, cs, "kb_overview", map[string]any{"conventions": true}, false), "Writing pages:") {
+		t.Error("conventions=true did not include them")
+	}
+
+	// Moving a page rewrites links written with balanced parentheses.
+	mv := decode(t, call(t, cs, "move_page", map[string]any{"from": "Mercury (planet)", "to": "Mercury"}, false))
+	if mv["links_rewritten"].(float64) != 1 {
+		t.Errorf("move %v", mv)
+	}
 }

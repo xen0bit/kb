@@ -78,7 +78,9 @@ func addTool[In any](s *mcp.Server, t *tools, tool *mcp.Tool, h func(context.Con
 
 // --- argument types ---------------------------------------------------------
 
-type overviewArgs struct{}
+type overviewArgs struct {
+	Conventions bool `json:"conventions,omitempty" jsonschema:"include the page-writing conventions (link syntax, frontmatter, redirects); they are included anyway while the kb is empty"`
+}
 
 type filterArgs struct {
 	Category         string `json:"category,omitempty" jsonschema:"only pages in this category"`
@@ -242,7 +244,8 @@ type bulkArgs struct {
 
 type uploadArgs struct {
 	Name        string `json:"name" jsonschema:"file name with extension, e.g. Einstein_1921.jpg; referenced as kb-file:Name"`
-	Data        string `json:"data_base64" jsonschema:"file contents, base64 (standard or URL-safe; a data: URL is accepted)"`
+	Text        string `json:"text,omitempty" jsonschema:"contents of a text file (SVG, CSV, JSON, plain text, ...) as-is; give text or data_base64"`
+	Data        string `json:"data_base64,omitempty" jsonschema:"contents of a binary file (PNG, JPEG, PDF, ...) as base64, standard or URL-safe; a data: URL also works"`
 	MIME        string `json:"mime,omitempty" jsonschema:"content type; detected from the name and contents when omitted"`
 	Description string `json:"description,omitempty" jsonschema:"what the file shows or contains: caption, source, licence"`
 	BaseRev     int64  `json:"base_rev,omitempty" jsonschema:"required to replace an existing file: its current rev"`
@@ -278,12 +281,24 @@ type newTaskArg struct {
 }
 
 type taskCreateArgs struct {
-	Tasks  []newTaskArg `json:"tasks" jsonschema:"tasks to create, up to 500"`
-	Author string       `json:"author,omitempty"`
+	Tasks []newTaskArg `json:"tasks,omitempty" jsonschema:"tasks to create, up to 500; or give one task's fields (title, body, ...) at the top level instead"`
+	newTaskArgOptional
+	Author string `json:"author,omitempty"`
+}
+
+// newTaskArgOptional is newTaskArg with every field optional, so task_create
+// also accepts a single task without the tasks array.
+type newTaskArgOptional struct {
+	Title    string `json:"title,omitempty" jsonschema:"for a single task: its title"`
+	Body     string `json:"body,omitempty"`
+	Priority int    `json:"priority,omitempty"`
+	ParentID int64  `json:"parent_id,omitempty"`
+	Page     string `json:"page,omitempty"`
 }
 
 type taskUpdateArgs struct {
-	ID       int64   `json:"id"`
+	ID       int64   `json:"id,omitempty" jsonschema:"the task to update; or give ids"`
+	IDs      []int64 `json:"ids,omitempty" jsonschema:"apply the same update to several tasks, e.g. {\"ids\":[1,2,3],\"status\":\"done\"}"`
 	Status   *string `json:"status,omitempty" jsonschema:"todo, doing, blocked, done or dropped"`
 	Priority *int    `json:"priority,omitempty"`
 	Assignee *string `json:"assignee,omitempty"`
@@ -343,4 +358,16 @@ type changesArgs struct {
 	Kind     string `json:"kind,omitempty" jsonschema:"prefix: page, page.edit, page.create, page.move, page.delete, file, task, note"`
 	Target   string `json:"target,omitempty" jsonschema:"only changes to this exact page title, file name, task title or note topic"`
 	Limit    int    `json:"limit,omitempty" jsonschema:"default 50, max 500"`
+}
+
+type feedbackArgs struct {
+	Kind    string `json:"kind" jsonschema:"bug (a tool misbehaved or errored wrongly), friction (it worked but was confusing, slow or wasteful), idea (something missing), or praise (something that worked well and should stay)"`
+	Tool    string `json:"tool,omitempty" jsonschema:"the tool this is about, e.g. edit_page"`
+	Message string `json:"message" jsonschema:"one or two sentences: what happened and what you expected"`
+	Details string `json:"details,omitempty" jsonschema:"optional: the arguments you sent, the error text, what you did instead"`
+	Author  string `json:"author,omitempty"`
+}
+
+type checkArgs struct {
+	Title string `json:"title" jsonschema:"the page to check"`
 }

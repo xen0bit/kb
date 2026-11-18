@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -104,7 +105,16 @@ func decodeBase64(s string) ([]byte, string, error) {
 		if !found {
 			return nil, "", errors.New("data URL has no comma")
 		}
-		mt, _, _ = strings.Cut(meta, ";")
+		var params string
+		mt, params, _ = strings.Cut(meta, ";")
+		if !strings.Contains(";"+params+";", ";base64;") {
+			// A data URL without ;base64 carries percent-encoded text.
+			t, err := url.PathUnescape(data)
+			if err != nil {
+				return nil, "", fmt.Errorf("data URL text: %w", err)
+			}
+			return []byte(t), mt, nil
+		}
 		s = data
 	}
 	s = strings.Map(func(r rune) rune {

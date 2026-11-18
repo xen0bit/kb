@@ -161,37 +161,122 @@ func truncateRunes(s string, n int) string {
 // followed by a quoted title, which CommonMark does not accept as a link.
 var spacedDest = regexp.MustCompile(`\]\(\s*((?i:kb-file|kb):[^)\s"'<>]+\s+[^)"'\s][^)]*)\)`)
 
-// bareDest and angleDest match the destination of an inline markdown link or
-// image whose target is a kb: page: "](kb:Title#frag" and
-// "](<kb:Title Here#frag>" respectively.
-var (
-	bareDest  = regexp.MustCompile(`\]\(\s*(?i:kb:)([^)\s#<>]+)(#[^)\s]*)?`)
-	angleDest = regexp.MustCompile(`\]\(\s*<(?i:kb:)([^>#\n]+)(#[^>\n]*)?>`)
-)
+// Dest is a kb: or kb-file: link destination found in a document.
+type Dest struct {
+	Kind     string // "page" or "file"
+	Target   string // decoded title or file name
+	Fragment string // decoded, without '#'
+	Angle    bool   // written as <kb:...>
+}
+
+// MapDestinations calls fn for every inline link or image destination that
+// starts with kb: or kb-file:, and replaces the destination (the text inside
+// the parentheses, up to any title) with what fn returns when ok is true.
+//
+// Destinations are scanned the way CommonMark reads them: <…> runs to the
+// closing '>', and a bare destination runs to whitespace or the ')' that
+// closes it, so balanced parentheses stay inside: kb:Mercury_(planet).
+// Links inside code are visited too; telling them apart needs a full parse
+// with source positions, and a code sample spelling out a kb: link is rare.
+func MapDestinations(doc string, fn func(d Dest) (string, bool)) (string, int) {
+	var b strings.Builder
+	n := 0
+	i := 0
+	for {
+		j := strings.Index(doc[i:], "](")
+		if j < 0 {
+			b.WriteString(doc[i:])
+			return b.String(), n
+		}
+		start := i + j + 2
+		b.WriteString(doc[i:start])
+		k := start
+		for k < len(doc) && (doc[k] == ' ' || doc[k] == '\t') {
+			k++
+		}
+		angle := k < len(doc) && doc[k] == '<'
+		ds := k
+		if angle {
+			ds++
+		}
+		var kind string
+		switch {
+		case hasPrefixFold(doc[ds:], FileScheme):
+			kind = "file"
+		case hasPrefixFold(doc[ds:], PageScheme):
+			kind = "page"
+		default:
+			i = start
+			continue
+		}
+		end := ds
+		if angle {
+			for end < len(doc) && doc[end] != '>' && doc[end] != '\n' {
+				end++
+			}
+			if end >= len(doc) || doc[end] != '>' {
+				i = start
+				continue
+			}
+		} else {
+			depth := 0
+		scan:
+			for end < len(doc) {
+				switch c := doc[end]; {
+				case c == '\\' && end+1 < len(doc):
+					end += 2
+					continue
+				case c == '(':
+					depth++
+				case c == ')':
+					if depth == 0 {
+						break scan
+					}
+					depth--
+				case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+					break scan
+				}
+				end++
+			}
+		}
+		raw := doc[ds:end]
+		k2, target, frag := ParseDestination(raw)
+		if k2 != kind {
+			i = start
+			continue
+		}
+		repl, ok := fn(Dest{Kind: kind, Target: target, Fragment: frag, Angle: angle})
+		if !ok {
+			i = start
+			continue
+		}
+		n++
+		b.WriteString(doc[start:k])
+		if angle {
+			b.WriteString("<" + repl + ">")
+			i = end + 1
+		} else {
+			b.WriteString(repl)
+			i = end
+		}
+	}
+}
 
 // RewriteLinks returns doc with every kb: link to oldKey pointed at newTitle,
 // keeping each link's fragment, label and title attribute. It reports how many
-// links it rewrote. Links inside code are rewritten too: telling them apart
-// from real links would need a full parse with source positions, and a code
-// sample that spells out a kb: link to a moved page is rare enough to accept.
+// links it rewrote.
 func RewriteLinks(doc, oldKey, newTitle string) (string, int) {
-	n := 0
-	rewrite := func(re *regexp.Regexp, angle bool) {
-		doc = re.ReplaceAllStringFunc(doc, func(m string) string {
-			sub := re.FindStringSubmatch(m)
-			target, frag := sub[1], sub[2]
-			_, t, _ := ParseDestination("kb:" + target)
-			if Key(t) != oldKey {
-				return m
-			}
-			n++
-			if angle {
-				return "](<kb:" + newTitle + frag + ">"
-			}
-			return "](kb:" + URLForm(newTitle) + frag
-		})
-	}
-	rewrite(bareDest, false)
-	rewrite(angleDest, true)
-	return doc, n
+	return MapDestinations(doc, func(d Dest) (string, bool) {
+		if d.Kind != "page" || Key(d.Target) != oldKey {
+			return "", false
+		}
+		frag := ""
+		if d.Fragment != "" {
+			frag = "#" + Anchor(d.Fragment)
+		}
+		if d.Angle {
+			return PageScheme + newTitle + frag, true
+		}
+		return PageScheme + LinkForm(newTitle) + frag, true
+	})
 }

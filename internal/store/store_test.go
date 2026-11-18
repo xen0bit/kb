@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,27 +73,63 @@ func TestMigrations(t *testing.T) {
 	}
 }
 
-func TestMigrationBackup(t *testing.T) {
+// TestUpgradeFromV1 builds a kb at schema version 1, with data in it, and
+// opens it with this binary: the upgrade must keep a backup, reach the
+// current version, and keep the data readable.
+func TestUpgradeFromV1(t *testing.T) {
+	if SchemaVersion() < 2 {
+		t.Skip("needs a second migration")
+	}
+	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "kb.db")
+	w, err := sql.Open("sqlite", dsn(path, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.SetMaxOpenConns(1)
+	old := &Store{path: path, w: w, log: slog.New(slog.DiscardHandler), now: time.Now}
+	if err := old.migrateTo(ctx, false, 1); err != nil {
+		t.Fatal(err)
+	}
+	// What a v1 binary would have written for one page.
+	for _, q := range []string{
+		`INSERT INTO pages (id, key, title, current_rev, created_at, updated_at) VALUES (1, 'old page', 'Old page', 1, 1, 1)`,
+		`INSERT INTO revisions (id, page_id, title, body, sha256, size, created_at) VALUES (1, 1, 'Old page', 'Kept.' || char(10), 'x', 6, 1)`,
+		`INSERT INTO pages_fts (rowid, title, aliases, body) VALUES (1, 'Old page', '', 'Kept.')`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+
 	s, err := Open(path, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.Close()
-	// Pretend the kb is one version behind: opening must back it up first.
-	// (Re-running migration 1 would fail, so step back only the version and
-	// expect the error, but the backup must exist before it.)
-	db, _ := sql.Open("sqlite", dsn(path, false))
-	_, _ = db.Exec("PRAGMA user_version = 0")
-	_, _ = db.Exec("CREATE TABLE marker (x)")
-	_, _ = db.Exec(fmt.Sprintf("PRAGMA user_version = %d", SchemaVersion()-1))
-	db.Close()
-	if SchemaVersion() < 2 {
-		t.Skip("needs a second migration to exercise an upgrade")
+	defer s.Close()
+	if v, _ := s.Version(ctx); v != SchemaVersion() {
+		t.Errorf("version %d after upgrade, want %d", v, SchemaVersion())
 	}
-	_, _ = Open(path, Options{})
 	if _, err := os.Stat(fmt.Sprintf("%s.pre-v%d.bak", path, SchemaVersion())); err != nil {
 		t.Errorf("no backup before migrating: %v", err)
+	}
+	p, err := s.GetPage(ctx, "old page", GetOptions{Body: true})
+	if err != nil || p.Body != "Kept.\n" {
+		t.Errorf("page after upgrade: %+v %v", p, err)
+	}
+	if hits, _, _ := s.Search(ctx, "kept", PageFilter{}, "", nil, 10, 0); len(hits) != 1 {
+		t.Errorf("search after upgrade: %v", hits)
+	}
+	// A fresh kb at v1 has no data and needs no backup.
+	fresh := filepath.Join(t.TempDir(), "fresh.db")
+	f, err := Open(fresh, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, err := os.Stat(fresh + ".pre-v2.bak"); err == nil {
+		t.Error("backup written for a new kb")
 	}
 }
 
@@ -218,7 +255,7 @@ func TestMoveRewritesLinksAndRedirects(t *testing.T) {
 		t.Errorf("move %+v", m)
 	}
 	ss, _ := s.GetPage(ctx, "Solar System", GetOptions{Body: true})
-	if !strings.Contains(ss.Body, "kb:Mercury_%28planet%29#Orbit") {
+	if !strings.Contains(ss.Body, "kb:Mercury_(planet)#Orbit") {
 		t.Errorf("links not rewritten: %q", ss.Body)
 	}
 	r, err := s.GetPage(ctx, "Mercury", GetOptions{FollowRedirect: true, Body: true})
@@ -235,6 +272,11 @@ func TestMoveRewritesLinksAndRedirects(t *testing.T) {
 	// Moving back over its own redirect is allowed.
 	if _, err := s.MovePage(ctx, MoveRequest{From: "Mercury (planet)", To: "Mercury"}); err != nil {
 		t.Errorf("move back over redirect: %v", err)
+	}
+	put(t, s, "Mars (planet)", "x")
+	put(t, s, "Mars (mythology)", "y")
+	if res, _ := s.Resolve(ctx, []string{"mars"}, 3); res[0].Status != "missing" || len(res[0].Suggest) != 2 || res[0].Suggest[0] != "Mars (mythology)" {
+		t.Errorf("disambiguation suggestions %+v", res)
 	}
 	if res, _ := s.Resolve(ctx, []string{"Mercury", "Mercury (planet)", "Mercuri", "Pluto", "a#b"}, 3); res[0].Status != "exists" ||
 		res[1].Status != "missing" || res[2].Status != "missing" || len(res[2].Suggest) == 0 || res[2].Suggest[0] != "Mercury" || res[4].Status != "invalid" {
@@ -300,7 +342,7 @@ func TestFiles(t *testing.T) {
 	s := open(t)
 	png := []byte("\x89PNG\r\n\x1a\nfakepng")
 	r, err := s.PutFile(ctx, PutFileRequest{Name: "dot.png", Data: png, Author: "a", Description: "a dot"})
-	if err != nil || !r.Created || r.MIME != "image/png" || r.Markdown != "![dot.png](kb-file:dot.png)" {
+	if err != nil || !r.Created || r.MIME != "image/png" || r.Markdown != "![a dot](kb-file:dot.png)" {
 		t.Fatalf("put %+v %v", r, err)
 	}
 	if _, err := s.PutFile(ctx, PutFileRequest{Name: "Dot.png", Data: png}); !errors.Is(err, ErrExists) {
@@ -438,5 +480,87 @@ func TestBackup(t *testing.T) {
 	}
 	if _, err := s.Vacuum(ctx); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestFeedback(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	f, err := s.AddFeedback(ctx, Feedback{Kind: "Friction", Tool: "read_page", Message: "outline was unclear", Author: "a"})
+	if err != nil || f.ID == 0 || f.Kind != "friction" || f.Status != "open" {
+		t.Fatalf("add %+v %v", f, err)
+	}
+	if _, err := s.AddFeedback(ctx, Feedback{Kind: "rant", Message: "x"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("bad kind: %v", err)
+	}
+	if err := s.ResolveFeedback(ctx, f.ID, "resolved", "clarified the description"); err != nil {
+		t.Fatal(err)
+	}
+	if open, n, _ := s.ListFeedback(ctx, FeedbackFilter{}); n != 0 || len(open) != 0 {
+		t.Errorf("open after resolve: %v", open)
+	}
+	all, n, err := s.ListFeedback(ctx, FeedbackFilter{Status: "all", Tool: "read_page"})
+	if err != nil || n != 1 || all[0].Resolution != "clarified the description" {
+		t.Errorf("all %+v %v", all, err)
+	}
+	if err := s.ResolveFeedback(ctx, 999, "resolved", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("missing: %v", err)
+	}
+}
+
+// TestUpgradeFromV2 upgrades a schema-v2 kb with tasks and notes about
+// pages: migration 3 must backfill the titles of pages that exist, and keep
+// the key for pages never written.
+func TestUpgradeFromV2(t *testing.T) {
+	if SchemaVersion() < 3 {
+		t.Skip("needs migration 3")
+	}
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kb.db")
+	w, err := sql.Open("sqlite", dsn(path, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.SetMaxOpenConns(1)
+	old := &Store{path: path, w: w, log: slog.New(slog.DiscardHandler), now: time.Now}
+	if err := old.migrateTo(ctx, false, 2); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO pages (id, key, title, current_rev, created_at, updated_at) VALUES (1, 'mercury (planet)', 'Mercury (planet)', 1, 1, 1)`,
+		`INSERT INTO revisions (id, page_id, title, body, sha256, size, created_at) VALUES (1, 1, 'Mercury (planet)', 'x', 'x', 1, 1)`,
+		`INSERT INTO tasks (id, title, page_key, created_at, updated_at) VALUES (1, 'Polish', 'mercury (planet)', 1, 1), (2, 'Write', 'sun', 1, 1)`,
+		`INSERT INTO notes (id, body, page_key, created_at, updated_at) VALUES (1, 'n', 'mercury (planet)', 1, 1)`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	s, err := Open(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Delete the page: the backfilled title must outlive it.
+	if err := s.DeletePage(ctx, "Mercury (planet)", "", "t", 0); err != nil {
+		t.Fatal(err)
+	}
+	if tk, _ := s.GetTask(ctx, 1); tk.Page != "Mercury (planet)" {
+		t.Errorf("backfilled task page %q", tk.Page)
+	}
+	if tk, _ := s.GetTask(ctx, 2); tk.Page != "sun" {
+		t.Errorf("unwritten page falls back to key: %q", tk.Page)
+	}
+	if n, _ := s.GetNote(ctx, 1); n.Page != "Mercury (planet)" {
+		t.Errorf("backfilled note page %q", n.Page)
+	}
+	// New tasks about unwritten pages keep the title as written.
+	ts, err := s.CreateTasks(ctx, []NewTask{{Title: "Write it", Page: "venus_(planet)"}})
+	if err != nil || ts[0].Page != "Venus (planet)" {
+		t.Errorf("new task page %+v %v", ts, err)
+	}
+	if list, _, _ := s.ListTasks(ctx, TaskFilter{Page: "VENUS (planet)"}); len(list) != 1 {
+		t.Errorf("filter by page: %v", list)
 	}
 }

@@ -36,6 +36,9 @@ func TestViewer(t *testing.T) {
 	if _, err := st.WriteNote(ctx, store.NoteWrite{Topic: "progress", Body: "Did [Foo](kb:Foo)."}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.AddFeedback(ctx, store.Feedback{Kind: "idea", Tool: "search", Message: "<b>wanted</b> regex"}); err != nil {
+		t.Fatal(err)
+	}
 	w, err := New(st, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +102,7 @@ func TestViewer(t *testing.T) {
 		t.Errorf("history lacks diff link: %s", hist)
 	}
 	for _, p := range []string{"/", "/recent", "/pages", "/pages?sort=updated", "/special", "/categories", "/category/Bands",
-		"/files", "/tasks", "/tasks?status=all", "/notes", "/links/Bar?dir=in", "/static/app.css"} {
+		"/files", "/tasks", "/tasks?status=all", "/notes", "/feedback", "/feedback?status=all", "/links/Bar?dir=in", "/static/app.css"} {
 		if code, _, body := get(p); code != 200 {
 			t.Errorf("%s: %d %s", p, code, body)
 		}
@@ -108,6 +111,9 @@ func TestViewer(t *testing.T) {
 		if code, _, body := get("/special/" + k); code != 200 {
 			t.Errorf("special %s: %d %s", k, code, body)
 		}
+	}
+	if _, _, body := get("/feedback"); !strings.Contains(body, "&lt;b&gt;wanted") {
+		t.Errorf("feedback page does not escape or show reports: %s", body)
 	}
 	revs, _ := st.History(ctx, "Bar", 0, 2)
 	if code, _, body := get("/diff?from=" + itoa(int(revs[1].ID)) + "&to=" + itoa(int(revs[0].ID))); code != 200 || !strings.Contains(body, `class="add"`) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"github.com/xen0bit/kb/internal/buildinfo"
 	"github.com/xen0bit/kb/internal/exportfs"
 	"github.com/xen0bit/kb/internal/mcpserver"
+	"github.com/xen0bit/kb/internal/skill"
 	"github.com/xen0bit/kb/internal/store"
 	"github.com/xen0bit/kb/internal/web"
 	"github.com/xen0bit/kb/internal/wikitext"
@@ -968,4 +970,118 @@ func runDB(ctx context.Context, args []string) error {
 		return usageErr("unknown db command %q", sub)
 	}
 	return nil
+}
+
+func runFeedback(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		args = []string{"ls"}
+	}
+	sub, args := args[0], args[1:]
+	c := newCommand("feedback "+sub, "...").withJSON()
+	all := c.fs.Bool("all", false, "include resolved feedback (ls)")
+	tool := c.fs.String("tool", "", "only about this tool (ls)")
+	kind := c.fs.String("kind", "", "only this kind (ls)")
+	note := c.fs.String("m", "", "resolution note (resolve)")
+	wontfix := c.fs.Bool("wontfix", false, "close as won't fix (resolve)")
+	pos, err := c.parse(args)
+	if err != nil {
+		return err
+	}
+	st, err := c.open()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	switch sub {
+	case "ls", "list":
+		f := store.FeedbackFilter{Tool: *tool, Kind: *kind, Limit: 500}
+		if *all {
+			f.Status = "all"
+		}
+		list, total, err := st.ListFeedback(ctx, f)
+		if err != nil {
+			return err
+		}
+		if c.json() {
+			return printJSON(map[string]any{"total": total, "feedback": list})
+		}
+		for _, x := range list {
+			fmt.Printf("#%d %s [%s] %s %s by %s\n  %s\n", x.ID, when(x.At), x.Status, x.Kind, x.Tool, x.Author, x.Message)
+			if x.Details != "" {
+				fmt.Printf("  details: %s\n", oneLine(x.Details, 300))
+			}
+			if x.Resolution != "" {
+				fmt.Printf("  resolution: %s\n", x.Resolution)
+			}
+		}
+		if total == 0 {
+			fmt.Println("no feedback")
+		}
+	case "resolve":
+		if len(pos) != 1 {
+			return usageErr("give a feedback ID")
+		}
+		id, err := strconv.ParseInt(pos[0], 10, 64)
+		if err != nil {
+			return usageErr("ID must be a number")
+		}
+		status := "resolved"
+		if *wontfix {
+			status = "wontfix"
+		}
+		if err := st.ResolveFeedback(ctx, id, status, *note); err != nil {
+			return err
+		}
+		fmt.Printf("feedback %d: %s\n", id, status)
+	default:
+		return usageErr("unknown feedback command %q (ls, resolve)", sub)
+	}
+	return nil
+}
+
+func runSkill(args []string) error {
+	if len(args) == 0 {
+		return usageErr("give install or print")
+	}
+	sub, args := args[0], args[1:]
+	fs := flag.NewFlagSet("kb skill "+sub, flag.ContinueOnError)
+	dir := fs.String("dir", "", "skill directory (default ~/.claude/skills/kb)")
+	force := fs.Bool("force", false, "overwrite a SKILL.md that differs from this version's")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	switch sub {
+	case "print":
+		_, err := os.Stdout.Write(skill.Content)
+		return err
+	case "install":
+		d := *dir
+		if d == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			d = filepath.Join(home, ".claude", "skills", "kb")
+		}
+		path := filepath.Join(d, "SKILL.md")
+		if cur, err := os.ReadFile(path); err == nil {
+			if string(cur) == string(skill.Content) {
+				fmt.Printf("%s is already up to date\n", path)
+				return nil
+			}
+			if !*force {
+				return fmt.Errorf("%s exists and differs from this kb's skill (edited, or from another version); rerun with -force to replace it", path)
+			}
+		}
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, skill.Content, 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("installed %s\n", path)
+		return nil
+	default:
+		return usageErr("unknown skill command %q (install, print)", sub)
+	}
 }

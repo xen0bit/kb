@@ -87,6 +87,43 @@ func URLForm(title string) string {
 	return escapePath(t)
 }
 
+// LinkForm is a title as written in a markdown link destination: like
+// URLForm, but parentheses stay readable when they balance, since CommonMark
+// keeps balanced parentheses inside a destination: kb:Mercury_(planet).
+// Unbalanced ones are percent-encoded, as they would end the link.
+func LinkForm(title string) string {
+	t := strings.ReplaceAll(title, " ", "_")
+	if !balanced(t) {
+		return escapePath(t)
+	}
+	var b strings.Builder
+	for _, r := range t {
+		switch r {
+		case '(', ')':
+			b.WriteRune(r)
+		default:
+			b.WriteString(escapePath(string(r)))
+		}
+	}
+	return b.String()
+}
+
+func balanced(s string) bool {
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return false
+			}
+			depth--
+		}
+	}
+	return depth == 0
+}
+
 // escapePath percent-encodes what would break a markdown link destination or
 // a URL path, and leaves everything else (including non-ASCII) readable.
 func escapePath(s string) string {
@@ -112,7 +149,7 @@ const (
 
 // PageLink renders a markdown link to a page.
 func PageLink(label, title string) string {
-	return "[" + label + "](" + PageScheme + URLForm(title) + ")"
+	return "[" + label + "](" + PageScheme + LinkForm(title) + ")"
 }
 
 // ParseDestination splits a link destination into its kind and target.
