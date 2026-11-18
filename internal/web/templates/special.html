@@ -1,0 +1,10 @@
+{{define "content"}}{{with .Data}}
+<h1>{{.Label}}</h1>
+<ol class="plain" start="{{add .Pager.Offset 1}}">{{range .Rows}}<li>
+{{if $.Data.Files}}<a {{if eq $.Data.Kind "missing_files"}}class="new" {{end}}href="{{fileurl .Title}}">{{.Title}}</a>
+{{else}}<a {{if eq $.Data.Kind "wanted"}}class="new" {{end}}href="{{wiki .Title}}">{{.Title}}</a>{{end}}
+{{if .Count}}<span class="meta">({{.Count}}{{if eq $.Data.Kind "wanted"}} links{{else if .Note}} {{.Note}}{{else if or (eq $.Data.Kind "most_linked")}} links{{else}} bytes{{end}})</span>{{end}}
+{{if and .Note (or (eq $.Data.Kind "redirects") (eq $.Data.Kind "broken_redirects"))}} → {{.Note}}{{end}}
+</li>{{else}}<li class="meta">Nothing to report.</li>{{end}}</ol>
+{{template "pager" .Pager}}
+{{end}}{{end}}

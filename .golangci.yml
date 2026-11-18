@@ -1,0 +1,40 @@
+version: "2"
+
+# `make lint` should be reproducible, so the defaults that hide findings are
+# turned off: golangci-lint otherwise stops at 50 issues per linter and 3 per
+# check, which quietly under-reports how much is actually outstanding.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+linters:
+  settings:
+    errcheck:
+      # Closing a read-only resource (query rows, a response body, a store
+      # opened for one command) has no failure the caller could act on, and
+      # writes to a tabwriter or stderr fail only when the terminal is gone.
+      # Writes that matter are checked: transaction commits, file writes.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+        - (*github.com/xen0bit/kb/internal/store.Store).Close
+        - (*github.com/modelcontextprotocol/go-sdk/mcp.ClientSession).Close
+        - (*github.com/modelcontextprotocol/go-sdk/mcp.ServerSession).Close
+        - (io.Closer).Close
+        - (net.Listener).Close
+        - (*os.File).Close
+        - os.Remove
+        - io.Copy
+        - fmt.Fprintf
+        - fmt.Fprintln
+    staticcheck:
+      # golangci-lint's default set. Naming `checks` at all replaces the
+      # default list rather than adding to it, so the ST defaults are repeated.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022

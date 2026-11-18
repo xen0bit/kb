@@ -1,0 +1,8 @@
+{{define "content"}}{{with .Data}}
+<h1>Search: {{.Q}}</h1>
+{{if .Error}}<p class="notice warn">{{.Error}}</p>{{end}}
+{{with .Suggest}}<p>Did you mean: {{range $i, $t := .}}{{if $i}}, {{end}}<a href="{{wiki $t}}">{{$t}}</a>{{end}}?</p>{{end}}
+<p class="meta">{{.Pager.Total}} results · <a href="{{wiki .Q}}">go to page “{{.Q}}”</a></p>
+<ul class="results">{{range .Hits}}<li><a href="{{wiki .Title}}">{{.Title}}</a> <span class="meta">{{.Words}} words · {{template "when" .UpdatedAt}}</span><p class="snippet" data-snippet>{{.Snippet}}</p></li>{{end}}</ul>
+{{template "pager" .Pager}}
+{{end}}{{end}}

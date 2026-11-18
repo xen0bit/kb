@@ -1,0 +1,5 @@
+{{define "content"}}{{with .Data}}
+<h1>Categories</h1>
+<ul class="plain columns">{{range .Cats}}<li><a href="/category/{{.Name}}">{{.Name}}</a> <span class="meta">{{.Count}}</span></li>{{else}}<li class="meta">No categories yet.</li>{{end}}</ul>
+{{template "pager" .Pager}}
+{{end}}{{end}}

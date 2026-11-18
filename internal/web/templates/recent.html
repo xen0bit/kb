@@ -1,0 +1,13 @@
+{{define "content"}}{{with .Data}}
+<h1>Recent changes</h1>
+<p class="filters">Show: <a href="/recent">all</a> · <a href="/recent?kind=page">pages</a> · <a href="/recent?kind=file">files</a> · <a href="/recent?kind=task">tasks</a> · <a href="/recent?kind=note">notes</a></p>
+<table class="grid">
+<thead><tr><th>When</th><th>What</th><th>Target</th><th>Change</th><th>Author</th><th>Comment</th></tr></thead>
+<tbody>{{range .Changes}}<tr>
+<td>{{template "when" .At}}</td><td><span class="tag">{{.Kind}}</span></td>
+<td>{{if or (eq .Kind "page.create") (eq .Kind "page.edit") (eq .Kind "page.move") (eq .Kind "page.revert") (eq .Kind "page.restore") (eq .Kind "page.delete")}}<a href="{{wiki .Target}}">{{.Target}}</a>{{else if eq .Kind "file.upload"}}<a href="{{fileurl .Target}}">{{.Target}}</a>{{else}}{{.Target}}{{end}}</td>
+<td>{{if .SizeDelta}}<span class="{{if lt .SizeDelta 0}}del{{else}}add{{end}}">{{signed .SizeDelta}}</span>{{end}}{{if .Rev}} <a href="{{history .Target}}">rev {{.Rev}}</a>{{end}}</td>
+<td><a href="/recent?author={{.Author}}">{{.Author}}</a></td><td>{{.Comment}}</td>
+</tr>{{else}}<tr><td colspan="6" class="meta">No changes.</td></tr>{{end}}</tbody></table>
+{{if .Older}}<p><a href="{{.Older}}">Older changes →</a></p>{{end}}
+{{end}}{{end}}

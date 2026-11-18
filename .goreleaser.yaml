@@ -1,0 +1,134 @@
+# GoReleaser configuration for kb.
+# https://goreleaser.com
+#
+#   goreleaser check                       # validate this file
+#   make snapshot                          # full pipeline dry run, no publish
+#   goreleaser release --clean             # real release (git tag + GITHUB_TOKEN)
+#
+# kb is CGO-free (modernc.org/sqlite is SQLite transpiled to Go, FTS5
+# included), so every Debian release architecture cross-compiles from one
+# runner. That is what lets the apt repository carry eight of them.
+
+version: 2
+
+project_name: kb
+
+before:
+  hooks:
+    - go mod tidy
+    - go vet ./...
+    # The viewer's CSS and JS are embedded (-tags embed_web), so they must be
+    # built first. Needs bun; release.yml installs it.
+    - make web.build
+
+builds:
+  - id: kb
+    binary: kb
+    main: ./cmd/kb
+    # embed_web bakes web/dist into the binary. An installed kb has no
+    # checkout to serve assets from, so a packaged build embeds or it does not
+    # ship.
+    tags:
+      - embed_web
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    # Every Debian trixie release architecture: amd64, arm64, armhf (arm7),
+    # armel (arm5), i386, ppc64el, riscv64, s390x.
+    goarch: [amd64, arm64, arm, "386", ppc64le, riscv64, s390x]
+    goarm: ["5", "7"]
+    # softfloat, not Go's default sse2: Debian's i386 baseline does not
+    # include SSE2.
+    go386: [softfloat]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/xen0bit/kb/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/xen0bit/kb/internal/buildinfo.Commit={{ .ShortCommit }}
+      - -X github.com/xen0bit/kb/internal/buildinfo.Date={{ .CommitDate }}
+
+archives:
+  - id: kb
+    ids: [kb]
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - README.md
+      - LICENSE*
+
+nfpms:
+  - id: kb
+    package_name: kb
+    ids: [kb]
+    vendor: kb
+    homepage: https://github.com/xen0bit/kb
+    maintainer: Remy <21974988+xen0bit@users.noreply.github.com>
+    description: |-
+      A Wikipedia-style knowledge base for agents, in one SQLite file.
+      kb stores markdown pages with full history, images and other files,
+      links (including red links to pages not yet written), categories, tasks
+      and notes in a single SQLite database, and serves it over MCP (stdio or
+      streamable HTTP) with search, sectioned reads and conflict-checked
+      edits. A read-only web viewer browses the result.
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: README.md
+        dst: /usr/share/doc/kb/README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+# Keyless cosign signature over checksums.txt via GitHub's OIDC identity: the
+# checksum file covers every artifact, so one signature covers them all. The
+# apt repository is signed separately with APT_SIGNING_KEY (apt only speaks
+# OpenPGP).
+signs:
+  - cmd: cosign
+    certificate: "${artifact}.pem"
+    args:
+      - "sign-blob"
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true
+
+# The document name carries the ARM variant: armel and armhf are both
+# GOARCH=arm, and without it their SBOMs collide on one filename and the
+# upload fails with 422 already_exists.
+sboms:
+  - artifacts: binary
+    documents:
+      - >-
+        {{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+        {{- if .Arm }}v{{ .Arm }}{{ end }}.sbom.json
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false
+  prerelease: auto
+  footer: |
+    ## apt
+
+    ```bash
+    sudo curl -fsSL https://xen0bit.github.io/kb/kb-archive-keyring.gpg \
+         -o /usr/share/keyrings/kb-archive-keyring.gpg
+    echo "deb [signed-by=/usr/share/keyrings/kb-archive-keyring.gpg] https://xen0bit.github.io/kb stable main" \
+         | sudo tee /etc/apt/sources.list.d/kb.list
+    sudo apt update && sudo apt install kb
+    ```

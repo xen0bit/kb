@@ -1,0 +1,7 @@
+{{define "content"}}{{with .Data}}
+<h1 class="new">{{.Title}}</h1>
+<p class="notice">{{if eq .Res.Status "deleted"}}This page was deleted.{{else}}There is no page with this title yet.{{end}}</p>
+{{with .Res.Suggest}}<p>Did you mean: {{range $i, $t := .}}{{if $i}}, {{end}}<a href="{{wiki $t}}">{{$t}}</a>{{end}}?</p>{{end}}
+{{with .Linkers}}<h2>Pages linking here</h2><ul class="plain">{{range .}}<li><a href="{{wiki .}}">{{.}}</a></li>{{end}}</ul>{{end}}
+{{with .Mentions}}<h2>Pages mentioning “{{$.Data.Title}}”</h2><ul class="results">{{range .}}<li><a href="{{wiki .Title}}">{{.Title}}</a><p>{{.Snippet}}</p></li>{{end}}</ul>{{end}}
+{{end}}{{end}}

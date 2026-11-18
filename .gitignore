@@ -1,0 +1,23 @@
+# Binary, anchored to the root so a directory named kb elsewhere is not swallowed.
+/kb
+*.test
+
+# Local kbs
+*.db
+*.db-shm
+*.db-wal
+*.db.pre-v*.bak
+
+# GoReleaser output
+/dist/
+
+# Bun output and dependencies
+/web/dist/
+/web/src/node_modules/
+
+coverage.out
+coverage.html
+.idea/
+.vscode/
+*.swp
+*~
