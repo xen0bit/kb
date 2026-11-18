@@ -49,9 +49,9 @@ func (t *tools) registerFeedback(s *mcp.Server) {
 func (t *tools) registerFind(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "kb_overview",
-		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories; and the conventions for writing pages (link syntax, frontmatter, redirects).",
+		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories. Pass conventions=true for the page-writing conventions (link syntax, frontmatter, redirects) if you have not seen them; they are always included while the kb is empty.",
 		Annotations: readOnly("Overview"),
-	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ overviewArgs) ([]mcp.Content, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a overviewArgs) ([]mcp.Content, error) {
 		st, err := t.st.Stats(ctx)
 		if err != nil {
 			return nil, err
@@ -93,7 +93,15 @@ func (t *tools) registerFind(s *mcp.Server) {
 		if st.Pages == 0 {
 			out["hint"] = "The kb is empty. Plan the work as tasks (task_create), then write pages; red links you leave become the wanted list."
 		}
-		return text(toJSON(out) + "\n\n" + conventions), nil
+		// The conventions are in the server instructions and the kb skill;
+		// repeating them on every overview costs an agent that already has
+		// them ~600 tokens a session. An empty kb is where an agent whose
+		// client dropped the instructions most needs them.
+		if a.Conventions || st.Pages == 0 {
+			return text(toJSON(out) + "\n\n" + conventions), nil
+		}
+		out["conventions"] = "omitted: call kb_overview conventions=true or read the kb://guide resource for link syntax, frontmatter and redirects"
+		return jsonText(out), nil
 	})
 
 	addTool(s, t, &mcp.Tool{
@@ -237,6 +245,14 @@ func (t *tools) registerRead(s *mcp.Server) {
 		Annotations: readOnly("Read page"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, a readArgs) ([]mcp.Content, error) {
 		return t.readPage(ctx, a)
+	})
+
+	addTool(s, t, &mcp.Tool{
+		Name:        "check_page",
+		Description: "Review one page the way an editor would, in one call: its red links (each with how many pages want it), embedded files that were never uploaded, kb: links that did not parse, its sections, categories, status and infobox fields, inbound and outbound link counts, and a problems list (orphan, dead end, uncategorized, red links, missing files, malformed links). Use it after writing or editing a page instead of separate page_links and special_pages calls.",
+		Annotations: readOnly("Check page"),
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a checkArgs) ([]mcp.Content, error) {
+		return t.checkPage(ctx, a.Title)
 	})
 
 	addTool(s, t, &mcp.Tool{
@@ -574,7 +590,7 @@ func (t *tools) registerWrite(s *mcp.Server) {
 func (t *tools) registerFiles(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "upload_file",
-		Description: "Upload an image or other file. Text formats such as SVG, CSV or JSON go in text as they are, e.g. {\"name\":\"Orbits.svg\",\"text\":\"<svg xmlns=...>...</svg>\"}; binary files go in data_base64. Embed it in a page with the returned markdown: ![alt](kb-file:Name.png) for images, [label](kb-file:Name.pdf) otherwise. Identical bytes are stored once. Replacing an existing file needs its base_rev; old versions are kept.",
+		Description: "Upload an image or other file. Names follow title rules: underscores and spaces are the same, so Inner_planet_orbits.svg is stored as \"Inner planet orbits.svg\" and either spelling reaches it. Text formats such as SVG, CSV or JSON go in text as they are, e.g. {\"name\":\"Orbits.svg\",\"text\":\"<svg xmlns=...>...</svg>\"}; binary files go in data_base64. Embed it in a page with the returned markdown: ![alt](kb-file:Name.png) for images, [label](kb-file:Name.pdf) otherwise. Identical bytes are stored once. Replacing an existing file needs its base_rev; old versions are kept.",
 		Annotations: writes("Upload file", false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, a uploadArgs) ([]mcp.Content, error) {
 		var data []byte
@@ -616,7 +632,7 @@ func (t *tools) registerFiles(s *mcp.Server) {
 		if err != nil {
 			return nil, err
 		}
-		meta := map[string]any{"file": f, "markdown": store.EmbedMarkdown(f.Name, f.MIME)}
+		meta := map[string]any{"file": f, "markdown": store.EmbedMarkdown(f.Name, f.MIME, f.Description)}
 		c := jsonText(meta)
 		if !a.Content {
 			return c, nil
@@ -854,4 +870,77 @@ func boolOr(b *bool, d bool) bool {
 		return d
 	}
 	return *b
+}
+
+func (t *tools) checkPage(ctx context.Context, title string) ([]mcp.Content, error) {
+	p, err := t.st.GetPage(ctx, title, store.GetOptions{Body: true})
+	if err != nil {
+		return nil, err
+	}
+	doc, err := wikitext.Analyze(p.Body)
+	if err != nil {
+		return nil, err
+	}
+	red, files, err := t.st.LinkReport(ctx, p.Title)
+	if err != nil {
+		return nil, err
+	}
+	out, in, err := t.st.LinkCounts(ctx, p.ID)
+	if err != nil {
+		return nil, err
+	}
+	type redLink struct {
+		Title    string `json:"title"`
+		WantedBy int    `json:"wanted_by"`
+	}
+	var reds []redLink
+	if len(red) > 0 {
+		res, err := t.st.Resolve(ctx, red, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range res {
+			reds = append(reds, redLink{Title: r.Title, WantedBy: r.Backlinks})
+		}
+	}
+	var sections []string
+	for _, sec := range wikitext.Outline(p.Body)[1:] {
+		sections = append(sections, sec.Path)
+	}
+	var propKeys []string
+	if len(p.Props) > 0 {
+		propKeys = wikitext.SortedPropKeys(p.Props)
+	}
+	var problems []string
+	if p.RedirectTo == "" {
+		if in == 0 {
+			problems = append(problems, "orphan: no other page links here")
+		}
+		if out == 0 {
+			problems = append(problems, "dead end: links to no other page")
+		}
+		if len(p.Categories) == 0 {
+			problems = append(problems, "uncategorized: no categories in frontmatter")
+		}
+	}
+	if len(reds) > 0 {
+		problems = append(problems, fmt.Sprintf("%d red links (fine if intended: they join special_pages kind=wanted)", len(reds)))
+	}
+	if len(files) > 0 {
+		problems = append(problems, fmt.Sprintf("%d embedded files not uploaded", len(files)))
+	}
+	var warnings []string
+	for _, m := range doc.Malformed {
+		warnings = append(warnings, fmt.Sprintf("(%s) is not a link: use underscores for spaces or wrap the destination in <>", m))
+		problems = append(problems, "malformed link: "+m)
+	}
+	res := map[string]any{
+		"title": p.Title, "rev": p.Rev, "status": p.Status, "categories": p.Categories, "aliases": p.Aliases,
+		"infobox_fields": propKeys, "words": p.Words, "sections": sections, "links_out": out, "backlinks": in,
+		"red_links": reds, "missing_files": files, "warnings": warnings, "problems": problems, "ok": len(problems) == 0,
+	}
+	if p.RedirectTo != "" {
+		res["redirect_to"] = p.RedirectTo
+	}
+	return jsonText(res), nil
 }

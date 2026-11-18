@@ -82,13 +82,25 @@ func DetectMIME(name string, data []byte) string {
 	return http.DetectContentType(data)
 }
 
-// EmbedMarkdown is the markdown that embeds or links a file.
-func EmbedMarkdown(name, mimeType string) string {
+// EmbedMarkdown is the markdown that embeds or links a file. The label is
+// the description's first sentence when there is one, else the name without
+// its extension: alt text that reads as text, not as a file name.
+func EmbedMarkdown(name, mimeType, description string) string {
 	dest := wikitext.FileScheme + wikitext.URLForm(name)
-	if strings.HasPrefix(mimeType, "image/") {
-		return "![" + name + "](" + dest + ")"
+	label := strings.TrimSuffix(name, path.Ext(name))
+	if d := strings.TrimSpace(description); d != "" {
+		if i := strings.IndexAny(d, ".\n"); i > 0 {
+			d = d[:i]
+		}
+		if len(d) <= 100 {
+			label = d
+		}
 	}
-	return "[" + name + "](" + dest + ")"
+	label = strings.NewReplacer("[", "(", "]", ")").Replace(label)
+	if strings.HasPrefix(mimeType, "image/") {
+		return "![" + label + "](" + dest + ")"
+	}
+	return "[" + label + "](" + dest + ")"
 }
 
 // PutFile stores a file, creating it or adding a revision.
@@ -114,7 +126,7 @@ func (s *Store) PutFile(ctx context.Context, req PutFileRequest) (*PutFileResult
 	}
 	sumb := sha256.Sum256(req.Data)
 	sum := hex.EncodeToString(sumb[:])
-	res := &PutFileResult{Name: name, SHA256: sum, Size: int64(len(req.Data)), MIME: mt, Markdown: EmbedMarkdown(name, mt)}
+	res := &PutFileResult{Name: name, SHA256: sum, Size: int64(len(req.Data)), MIME: mt, Markdown: EmbedMarkdown(name, mt, req.Description)}
 	err = s.write(ctx, func(tx *sql.Tx) error {
 		cur, err := scanFile(tx.QueryRowContext(ctx, `SELECT `+fileCols+` FROM files f WHERE f.key = ?`, key))
 		if errors.Is(err, sql.ErrNoRows) {

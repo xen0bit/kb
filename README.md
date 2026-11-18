@@ -97,6 +97,7 @@ goes in angle brackets: [relativity](<kb:Theory of relativity>).
 |---|---|
 | Orient | `kb_overview`: counts, latest changes, wanted pages, open tasks, recent notes and the writing conventions |
 | Find | `search` (FTS5/BM25 with snippets, filters and sorts), `list_pages`, `resolve_titles` (batch exists/redirect/alias/missing plus did-you-mean), `special_pages` (wanted, orphans, dead_ends, stubs, uncategorized, short, long, redirects, broken_redirects, missing_files, unused_files, most_linked), `list_categories`, `recent_changes` (resumable with `after_id`) |
+| Check | `check_page`: one page's red links (with how many pages want each), missing files, malformed links, sections, infobox fields and problems |
 | Read | `read_page` (outline, a single section, a line range, an old revision; byte-capped and says where to continue), `page_links` (out, in, red), `page_history`, `diff_revisions` |
 | Write | `create_page`, `write_page` (needs `base_rev`), `edit_page` (str_replace edits, replace a section, append, prepend), `bulk_write` (up to 50 pages), `move_page`, `delete_page`, `restore_page`, `revert_page` |
 | Files | `upload_file`, `get_file` (images come back as image content), `list_files`, `delete_file` |

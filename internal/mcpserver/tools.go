@@ -78,7 +78,9 @@ func addTool[In any](s *mcp.Server, t *tools, tool *mcp.Tool, h func(context.Con
 
 // --- argument types ---------------------------------------------------------
 
-type overviewArgs struct{}
+type overviewArgs struct {
+	Conventions bool `json:"conventions,omitempty" jsonschema:"include the page-writing conventions (link syntax, frontmatter, redirects); they are included anyway while the kb is empty"`
+}
 
 type filterArgs struct {
 	Category         string `json:"category,omitempty" jsonschema:"only pages in this category"`
@@ -364,4 +366,8 @@ type feedbackArgs struct {
 	Message string `json:"message" jsonschema:"one or two sentences: what happened and what you expected"`
 	Details string `json:"details,omitempty" jsonschema:"optional: the arguments you sent, the error text, what you did instead"`
 	Author  string `json:"author,omitempty"`
+}
+
+type checkArgs struct {
+	Title string `json:"title" jsonschema:"the page to check"`
 }

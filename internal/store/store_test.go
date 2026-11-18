@@ -342,7 +342,7 @@ func TestFiles(t *testing.T) {
 	s := open(t)
 	png := []byte("\x89PNG\r\n\x1a\nfakepng")
 	r, err := s.PutFile(ctx, PutFileRequest{Name: "dot.png", Data: png, Author: "a", Description: "a dot"})
-	if err != nil || !r.Created || r.MIME != "image/png" || r.Markdown != "![dot.png](kb-file:dot.png)" {
+	if err != nil || !r.Created || r.MIME != "image/png" || r.Markdown != "![a dot](kb-file:dot.png)" {
 		t.Fatalf("put %+v %v", r, err)
 	}
 	if _, err := s.PutFile(ctx, PutFileRequest{Name: "Dot.png", Data: png}); !errors.Is(err, ErrExists) {
@@ -505,5 +505,62 @@ func TestFeedback(t *testing.T) {
 	}
 	if err := s.ResolveFeedback(ctx, 999, "resolved", ""); !errors.Is(err, ErrNotFound) {
 		t.Errorf("missing: %v", err)
+	}
+}
+
+// TestUpgradeFromV2 upgrades a schema-v2 kb with tasks and notes about
+// pages: migration 3 must backfill the titles of pages that exist, and keep
+// the key for pages never written.
+func TestUpgradeFromV2(t *testing.T) {
+	if SchemaVersion() < 3 {
+		t.Skip("needs migration 3")
+	}
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "kb.db")
+	w, err := sql.Open("sqlite", dsn(path, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.SetMaxOpenConns(1)
+	old := &Store{path: path, w: w, log: slog.New(slog.DiscardHandler), now: time.Now}
+	if err := old.migrateTo(ctx, false, 2); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO pages (id, key, title, current_rev, created_at, updated_at) VALUES (1, 'mercury (planet)', 'Mercury (planet)', 1, 1, 1)`,
+		`INSERT INTO revisions (id, page_id, title, body, sha256, size, created_at) VALUES (1, 1, 'Mercury (planet)', 'x', 'x', 1, 1)`,
+		`INSERT INTO tasks (id, title, page_key, created_at, updated_at) VALUES (1, 'Polish', 'mercury (planet)', 1, 1), (2, 'Write', 'sun', 1, 1)`,
+		`INSERT INTO notes (id, body, page_key, created_at, updated_at) VALUES (1, 'n', 'mercury (planet)', 1, 1)`,
+	} {
+		if _, err := w.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.Close()
+	s, err := Open(path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	// Delete the page: the backfilled title must outlive it.
+	if err := s.DeletePage(ctx, "Mercury (planet)", "", "t", 0); err != nil {
+		t.Fatal(err)
+	}
+	if tk, _ := s.GetTask(ctx, 1); tk.Page != "Mercury (planet)" {
+		t.Errorf("backfilled task page %q", tk.Page)
+	}
+	if tk, _ := s.GetTask(ctx, 2); tk.Page != "sun" {
+		t.Errorf("unwritten page falls back to key: %q", tk.Page)
+	}
+	if n, _ := s.GetNote(ctx, 1); n.Page != "Mercury (planet)" {
+		t.Errorf("backfilled note page %q", n.Page)
+	}
+	// New tasks about unwritten pages keep the title as written.
+	ts, err := s.CreateTasks(ctx, []NewTask{{Title: "Write it", Page: "venus_(planet)"}})
+	if err != nil || ts[0].Page != "Venus (planet)" {
+		t.Errorf("new task page %+v %v", ts, err)
+	}
+	if list, _, _ := s.ListTasks(ctx, TaskFilter{Page: "VENUS (planet)"}); len(list) != 1 {
+		t.Errorf("filter by page: %v", list)
 	}
 }

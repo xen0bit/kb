@@ -125,7 +125,7 @@ func TestAgentSession(t *testing.T) {
 
 	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"))
 	up := decode(t, call(t, cs, "upload_file", map[string]any{"name": "Solar_system.png", "data_base64": png, "description": "diagram"}, false))
-	if up["markdown"] != "![Solar system.png](kb-file:Solar_system.png)" {
+	if up["markdown"] != "![diagram](kb-file:Solar_system.png)" {
 		t.Errorf("upload %v", up)
 	}
 	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "get_file", Arguments: map[string]any{"name": "solar system.png", "content": true}})
@@ -336,6 +336,30 @@ func TestExerciseFindings(t *testing.T) {
 		t.Errorf("single update %v", single)
 	}
 	call(t, cs, "task_update", map[string]any{"status": "done"}, true)
+
+	// check_page reports everything an editor checks in one call.
+	call(t, cs, "create_page", map[string]any{"title": "Earth", "body": "---\ncategories: [Planets]\nmass_kg: 5.97e24\n---\nOrbits the [Sun](kb:Sun); see [x](kb:Not a link).\n\n![d](kb-file:Missing.png)\n\n## Orbit\n\nYes.\n"}, false)
+	chk := decode(t, call(t, cs, "check_page", map[string]any{"title": "earth"}, false))
+	reds := chk["red_links"].([]any)
+	if len(reds) != 1 || reds[0].(map[string]any)["title"] != "Sun" || reds[0].(map[string]any)["wanted_by"].(float64) != 2 {
+		t.Errorf("check red links %v", chk["red_links"])
+	}
+	if chk["ok"] != false || len(chk["missing_files"].([]any)) != 1 || len(chk["warnings"].([]any)) != 1 ||
+		chk["infobox_fields"].([]any)[0] != "mass_kg" || chk["sections"].([]any)[0] != "Orbit" {
+		t.Errorf("check %v", chk)
+	}
+	if !strings.Contains(toJSON(chk["problems"]), "orphan") {
+		t.Errorf("problems %v", chk["problems"])
+	}
+
+	// kb_overview leaves out the conventions once the kb has pages.
+	ov := call(t, cs, "kb_overview", nil, false)
+	if strings.Contains(ov, "Writing pages:") || !strings.Contains(ov, "conventions=true") {
+		t.Errorf("overview repeats conventions: %.300s", ov)
+	}
+	if !strings.Contains(call(t, cs, "kb_overview", map[string]any{"conventions": true}, false), "Writing pages:") {
+		t.Error("conventions=true did not include them")
+	}
 
 	// Moving a page rewrites links written with balanced parentheses.
 	mv := decode(t, call(t, cs, "move_page", map[string]any{"from": "Mercury (planet)", "to": "Mercury"}, false))
