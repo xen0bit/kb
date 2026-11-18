@@ -21,12 +21,12 @@ If your client lists only tool names (for example Claude Code shows `mcp__kb__*`
 
 ## Workflow
 
-1. **Orient.** Call `kb_overview` (add `conventions=true` only if you have not seen the page conventions below). Note `stats.last_change_id`, the open tasks, the recent notes and the wanted pages. When resuming, read the `progress` notes (`note_list topic=progress`) and `recent_changes after_id=<id from your last note>`.
+1. **Orient.** Call `kb_overview`. You have the page conventions below, so you don't need `conventions=true`. Note `stats.last_change_id`, the open tasks, the recent notes and the wanted pages. When resuming, read the `progress` notes (`note_list topic=progress`) and `recent_changes after_id=<id from your last note>`.
 2. **Plan as tasks** before writing: one task per article or chunk of work, with `page` set. For large efforts nest them (`parent_id`) and take work with `task_claim_next`, which is safe when several agents share the kb.
 3. **Check titles** with one `resolve_titles` call for everything you plan to write or link. It tells you what exists, what redirects, and suggests disambiguations ("Mercury" → "Mercury (planet)").
 4. **Write.** Use `bulk_write` for new pages (up to 50 per call). Its `red_links` are computed after the whole batch, so links between pages of one batch are not red.
 5. **Change** existing pages with `edit_page`, not `write_page`: str_replace edits, one section, or append. `write_page` replaces everything and needs `base_rev`.
-6. **Verify** each page you wrote with `check_page`: one call returns its red links (with how many pages want each), missing files, malformed links and problems such as orphan or uncategorized. Use `special_pages kind=wanted` for the kb as a whole.
+6. **Verify** each page you wrote with `check_page`: one call returns its red links (with how many pages want each), each embedded file and whether it was uploaded, malformed links, and problems such as orphan or uncategorized. Use `special_pages kind=wanted` for the kb as a whole.
 7. **Record.** Close tasks in one `task_update ids=[...]` call, and keep one running note per effort (`note_write topic=progress`, then `id` + `append=true`): what is done, what is next, and the last change id.
 
 ## Page conventions

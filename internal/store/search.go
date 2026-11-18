@@ -366,17 +366,17 @@ func (s *Store) Resolve(ctx context.Context, titles []string, suggest int) ([]Re
 			if t, err := s.pageByKey(ctx, s.r, p.RedirectTo); err == nil && t != nil && !t.Deleted {
 				r.Target = t.Title
 			}
-			r.Link = wikitext.PageScheme + wikitext.URLForm(p.Title)
+			r.Link = wikitext.PageScheme + wikitext.LinkForm(p.Title)
 		case p != nil && !p.Deleted:
 			r.Status, r.Title, r.Rev = "exists", p.Title, p.Rev
-			r.Link = wikitext.PageScheme + wikitext.URLForm(p.Title)
+			r.Link = wikitext.PageScheme + wikitext.LinkForm(p.Title)
 		default:
 			var target string
 			err := s.r.QueryRowContext(ctx, `SELECT p.title FROM aliases a JOIN pages p ON p.id = a.page_id
 				WHERE a.alias_key = ? AND p.deleted_at IS NULL ORDER BY p.updated_at DESC LIMIT 1`, key).Scan(&target)
 			if err == nil {
 				r.Status, r.Title, r.Target = "alias", n, target
-				r.Link = wikitext.PageScheme + wikitext.URLForm(target)
+				r.Link = wikitext.PageScheme + wikitext.LinkForm(target)
 				break
 			}
 			if !errors.Is(err, sql.ErrNoRows) {
@@ -386,7 +386,7 @@ func (s *Store) Resolve(ctx context.Context, titles []string, suggest int) ([]Re
 			if p != nil {
 				r.Status = "deleted"
 			}
-			r.Link = wikitext.PageScheme + wikitext.URLForm(n)
+			r.Link = wikitext.PageScheme + wikitext.LinkForm(n)
 			if err := s.r.QueryRowContext(ctx, `SELECT count(*) FROM links l JOIN pages s ON s.id = l.src AND s.deleted_at IS NULL
 				WHERE l.target_key = ?`, key).Scan(&r.Backlinks); err != nil {
 				return nil, err

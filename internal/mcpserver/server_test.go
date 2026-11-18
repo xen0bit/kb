@@ -88,7 +88,7 @@ func TestAgentSession(t *testing.T) {
 	}
 
 	ov := call(t, cs, "kb_overview", nil, false)
-	if !strings.Contains(ov, `"hint"`) || !strings.Contains(ov, "kb:Page_Title") {
+	if !strings.Contains(ov, `"hint"`) || !strings.Contains(ov, "conventions=true") || strings.Contains(ov, "Writing pages:") {
 		t.Errorf("overview of empty kb: %s", ov)
 	}
 
@@ -300,6 +300,10 @@ func TestExerciseFindings(t *testing.T) {
 	}
 
 	// resolve_titles suggests disambiguated titles.
+	rs := decode(t, call(t, cs, "resolve_titles", map[string]any{"titles": []any{"Mercury (planet)"}}, false))
+	if l := rs["titles"].([]any)[0].(map[string]any)["link"]; l != "kb:Mercury_(planet)" {
+		t.Errorf("resolve link %v", l)
+	}
 	res := decode(t, call(t, cs, "resolve_titles", map[string]any{"titles": []any{"Mercury"}}, false))
 	r0 := res["titles"].([]any)[0].(map[string]any)
 	if sug, _ := r0["did_you_mean"].([]any); len(sug) == 0 || sug[0] != "Mercury (planet)" {
@@ -344,6 +348,9 @@ func TestExerciseFindings(t *testing.T) {
 	if len(reds) != 1 || reds[0].(map[string]any)["title"] != "Sun" || reds[0].(map[string]any)["wanted_by"].(float64) != 2 {
 		t.Errorf("check red links %v", chk["red_links"])
 	}
+	if f := chk["files"].([]any); len(f) != 1 || f[0].(map[string]any)["uploaded"] != false {
+		t.Errorf("check files %v", chk["files"])
+	}
 	if chk["ok"] != false || len(chk["missing_files"].([]any)) != 1 || len(chk["warnings"].([]any)) != 1 ||
 		chk["infobox_fields"].([]any)[0] != "mass_kg" || chk["sections"].([]any)[0] != "Orbit" {
 		t.Errorf("check %v", chk)
@@ -354,7 +361,7 @@ func TestExerciseFindings(t *testing.T) {
 
 	// kb_overview leaves out the conventions once the kb has pages.
 	ov := call(t, cs, "kb_overview", nil, false)
-	if strings.Contains(ov, "Writing pages:") || !strings.Contains(ov, "conventions=true") {
+	if strings.Contains(ov, "Writing pages:") {
 		t.Errorf("overview repeats conventions: %.300s", ov)
 	}
 	if !strings.Contains(call(t, cs, "kb_overview", map[string]any{"conventions": true}, false), "Writing pages:") {

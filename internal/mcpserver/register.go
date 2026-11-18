@@ -49,7 +49,7 @@ func (t *tools) registerFeedback(s *mcp.Server) {
 func (t *tools) registerFind(s *mcp.Server) {
 	addTool(s, t, &mcp.Tool{
 		Name:        "kb_overview",
-		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories. Pass conventions=true for the page-writing conventions (link syntax, frontmatter, redirects) if you have not seen them; they are always included while the kb is empty.",
+		Description: "Start here. The state of the kb in one call: page, file, link and revision counts; pages by status; the latest changes (with the id to resume recent_changes from); the most-wanted missing pages; open tasks; recent notes and note topics; the biggest categories. Pass conventions=true for the page-writing conventions (link syntax, frontmatter, redirects) if you have not seen them in the server instructions or the kb skill.",
 		Annotations: readOnly("Overview"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, a overviewArgs) ([]mcp.Content, error) {
 		st, err := t.st.Stats(ctx)
@@ -91,16 +91,15 @@ func (t *tools) registerFind(s *mcp.Server) {
 			"open_task_count": openTasks, "recent_notes": notes, "note_topics": topics, "top_categories": cats,
 		}
 		if st.Pages == 0 {
-			out["hint"] = "The kb is empty. Plan the work as tasks (task_create), then write pages; red links you leave become the wanted list."
+			out["hint"] = "The kb is empty. Plan the work as tasks (task_create), then write pages; red links you leave become the wanted list. If you have not seen the page-writing conventions (link syntax, frontmatter), call kb_overview conventions=true."
 		}
 		// The conventions are in the server instructions and the kb skill;
-		// repeating them on every overview costs an agent that already has
-		// them ~600 tokens a session. An empty kb is where an agent whose
-		// client dropped the instructions most needs them.
-		if a.Conventions || st.Pages == 0 {
+		// repeating them unasked costs an agent that already has them ~600
+		// tokens. Agents whose client dropped the instructions are pointed
+		// at conventions=true instead.
+		if a.Conventions {
 			return text(toJSON(out) + "\n\n" + conventions), nil
 		}
-		out["conventions"] = "omitted: call kb_overview conventions=true or read the kb://guide resource for link syntax, frontmatter and redirects"
 		return jsonText(out), nil
 	})
 
@@ -249,7 +248,7 @@ func (t *tools) registerRead(s *mcp.Server) {
 
 	addTool(s, t, &mcp.Tool{
 		Name:        "check_page",
-		Description: "Review one page the way an editor would, in one call: its red links (each with how many pages want it), embedded files that were never uploaded, kb: links that did not parse, its sections, categories, status and infobox fields, inbound and outbound link counts, and a problems list (orphan, dead end, uncategorized, red links, missing files, malformed links). Use it after writing or editing a page instead of separate page_links and special_pages calls.",
+		Description: "Review one page the way an editor would, in one call: its red links (each with how many pages want it), every file it embeds or links with whether it was uploaded, kb: links that did not parse, its sections, categories, status and infobox fields, inbound and outbound link counts, and a problems list (orphan, dead end, uncategorized, red links, missing files, malformed links). Use it after writing or editing a page instead of separate page_links and special_pages calls.",
 		Annotations: readOnly("Check page"),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, a checkArgs) ([]mcp.Content, error) {
 		return t.checkPage(ctx, a.Title)
@@ -885,6 +884,26 @@ func (t *tools) checkPage(ctx context.Context, title string) ([]mcp.Content, err
 	if err != nil {
 		return nil, err
 	}
+	type embed struct {
+		Name     string `json:"name"`
+		Uploaded bool   `json:"uploaded"`
+		MIME     string `json:"mime,omitempty"`
+	}
+	var embeds []embed
+	if len(doc.Files) > 0 {
+		keys := make([]string, len(doc.Files))
+		for i, f := range doc.Files {
+			keys[i] = strings.ToLower(f)
+		}
+		have, err := t.st.ExistingFiles(ctx, keys)
+		if err != nil {
+			return nil, err
+		}
+		for i, f := range doc.Files {
+			mt, ok := have[keys[i]]
+			embeds = append(embeds, embed{Name: f, Uploaded: ok, MIME: mt})
+		}
+	}
 	out, in, err := t.st.LinkCounts(ctx, p.ID)
 	if err != nil {
 		return nil, err
@@ -937,7 +956,7 @@ func (t *tools) checkPage(ctx context.Context, title string) ([]mcp.Content, err
 	res := map[string]any{
 		"title": p.Title, "rev": p.Rev, "status": p.Status, "categories": p.Categories, "aliases": p.Aliases,
 		"infobox_fields": propKeys, "words": p.Words, "sections": sections, "links_out": out, "backlinks": in,
-		"red_links": reds, "missing_files": files, "warnings": warnings, "problems": problems, "ok": len(problems) == 0,
+		"red_links": reds, "files": embeds, "missing_files": files, "warnings": warnings, "problems": problems, "ok": len(problems) == 0,
 	}
 	if p.RedirectTo != "" {
 		res["redirect_to"] = p.RedirectTo

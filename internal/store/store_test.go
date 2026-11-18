@@ -255,7 +255,7 @@ func TestMoveRewritesLinksAndRedirects(t *testing.T) {
 		t.Errorf("move %+v", m)
 	}
 	ss, _ := s.GetPage(ctx, "Solar System", GetOptions{Body: true})
-	if !strings.Contains(ss.Body, "kb:Mercury_%28planet%29#Orbit") {
+	if !strings.Contains(ss.Body, "kb:Mercury_(planet)#Orbit") {
 		t.Errorf("links not rewritten: %q", ss.Body)
 	}
 	r, err := s.GetPage(ctx, "Mercury", GetOptions{FollowRedirect: true, Body: true})

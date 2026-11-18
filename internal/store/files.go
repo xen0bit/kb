@@ -86,7 +86,7 @@ func DetectMIME(name string, data []byte) string {
 // the description's first sentence when there is one, else the name without
 // its extension: alt text that reads as text, not as a file name.
 func EmbedMarkdown(name, mimeType, description string) string {
-	dest := wikitext.FileScheme + wikitext.URLForm(name)
+	dest := wikitext.FileScheme + wikitext.LinkForm(name)
 	label := strings.TrimSuffix(name, path.Ext(name))
 	if d := strings.TrimSpace(description); d != "" {
 		if i := strings.IndexAny(d, ".\n"); i > 0 {

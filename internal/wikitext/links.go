@@ -277,6 +277,6 @@ func RewriteLinks(doc, oldKey, newTitle string) (string, int) {
 		if d.Angle {
 			return PageScheme + newTitle + frag, true
 		}
-		return PageScheme + URLForm(newTitle) + frag, true
+		return PageScheme + LinkForm(newTitle) + frag, true
 	})
 }
