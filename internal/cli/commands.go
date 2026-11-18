@@ -24,7 +24,10 @@ import (
 )
 
 func runMCP(ctx context.Context, args []string) error {
-	c := newCommand("mcp", "[-http ADDR]")
+	if len(args) > 0 && args[0] == "install" {
+		return runMCPInstall(args[1:])
+	}
+	c := newCommand("mcp", "[-http ADDR] | install opencode")
 	httpAddr := c.fs.String("http", "", "serve streamable HTTP on `addr` (e.g. 127.0.0.1:8080) instead of stdio; a non-loopback address requires "+mcpserver.TokenEnv)
 	who := c.fs.String("author", "", "default author for writes when the client does not name itself")
 	maxFile := c.fs.Int64("max-file-size", store.DefaultMaxFileBytes, "largest upload in `bytes`")
@@ -1063,25 +1066,32 @@ func runSkill(args []string) error {
 			}
 			d = filepath.Join(home, ".claude", "skills", "kb")
 		}
-		path := filepath.Join(d, "SKILL.md")
-		if cur, err := os.ReadFile(path); err == nil {
-			if string(cur) == string(skill.Content) {
-				fmt.Printf("%s is already up to date\n", path)
-				return nil
-			}
-			if !*force {
-				return fmt.Errorf("%s exists and differs from this kb's skill (edited, or from another version); rerun with -force to replace it", path)
-			}
-		}
-		if err := os.MkdirAll(d, 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(path, skill.Content, 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("installed %s\n", path)
-		return nil
+		return installSkill(d, *force)
 	default:
 		return usageErr("unknown skill command %q (install, print)", sub)
 	}
+}
+
+// installSkill writes SKILL.md into dir. It leaves an identical file alone
+// and refuses to replace a different one (edited, or another version)
+// without force.
+func installSkill(dir string, force bool) error {
+	path := filepath.Join(dir, "SKILL.md")
+	if cur, err := os.ReadFile(path); err == nil {
+		if string(cur) == string(skill.Content) {
+			fmt.Printf("%s is already up to date\n", path)
+			return nil
+		}
+		if !force {
+			return fmt.Errorf("%s exists and differs from this kb's skill (edited, or from another version); rerun with -force to replace it", path)
+		}
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, skill.Content, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("installed %s\n", path)
+	return nil
 }

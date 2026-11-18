@@ -28,6 +28,7 @@ const usage = `kb - a Wikipedia-style knowledge base for agents, in one SQLite f
 Serve:
   kb mcp [-http ADDR]               MCP over stdio, or streamable HTTP on ADDR
   kb serve [-listen ADDR] [-mcp]    read-only web viewer; -mcp also serves MCP at /mcp
+  kb mcp install opencode [-project] [-db PATH]   register this kb with opencode, plus the skill
 
 Pages:
   kb get TITLE [-rev N] [-section S] [-outline]
